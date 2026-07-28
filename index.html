@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Proto">
+<title>Joystick prototyp</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body {
+    height:100%; width:100%; overflow:hidden;
+    background:#0e1512; touch-action:none; overscroll-behavior:none;
+    font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  #wrap { position:fixed; inset:0; }
+  canvas { display:block; width:100%; height:100%; }
+
+  #hud {
+    position:fixed; top:0; left:0; right:0; padding:14px 16px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    pointer-events:none; color:#e8f2ec;
+  }
+  .stat { font-variant-numeric:tabular-nums; }
+  .stat .k { font-size:10px; letter-spacing:.14em; text-transform:uppercase; opacity:.5; display:block; }
+  .stat .v { font-size:26px; font-weight:600; line-height:1.1; }
+  .stat.right { text-align:right; }
+
+  #gear {
+    position:fixed; top:52px; right:14px; width:38px; height:38px; border-radius:10px;
+    background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.14);
+    color:#e8f2ec; font-size:17px; line-height:36px; text-align:center; cursor:pointer;
+  }
+
+  #panel {
+    position:fixed; top:98px; right:14px; width:250px; max-width:calc(100vw - 28px);
+    background:rgba(10,18,15,.94); border:1px solid rgba(255,255,255,.14); border-radius:14px;
+    padding:14px; color:#e8f2ec; display:none; backdrop-filter:blur(8px);
+    max-height:calc(100vh - 130px); overflow-y:auto; touch-action:pan-y;
+  }
+  #panel.open { display:block; }
+  .row { margin-bottom:11px; }
+  .row:last-of-type { margin-bottom:6px; }
+  .row label { display:flex; justify-content:space-between; font-size:11px; opacity:.7; margin-bottom:5px; }
+  .row label b { font-weight:600; opacity:1; font-variant-numeric:tabular-nums; }
+  input[type=range] { width:100%; height:22px; background:transparent; -webkit-appearance:none; }
+  input[type=range]::-webkit-slider-runnable-track { height:3px; background:rgba(255,255,255,.22); border-radius:2px; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:17px; height:17px; margin-top:-7px; border-radius:50%; background:#4ade80; }
+  input[type=range]::-moz-range-track { height:3px; background:rgba(255,255,255,.22); border-radius:2px; }
+  input[type=range]::-moz-range-thumb { width:17px; height:17px; border:0; border-radius:50%; background:#4ade80; }
+  #reset, #defaults {
+    width:100%; margin-top:6px; padding:9px; border-radius:9px; border:1px solid rgba(255,255,255,.16);
+    background:transparent; color:#e8f2ec; font-size:12px; cursor:pointer;
+  }
+  #defaults { opacity:.6; }
+  #saved {
+    position:fixed; bottom:10px; left:0; right:0; text-align:center;
+    font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#4ade80;
+    opacity:0; transition:opacity .2s; pointer-events:none;
+  }
+  #saved.on { opacity:.85; }
+
+  #start {
+    position:fixed; inset:0; background:rgba(8,14,11,.93); color:#e8f2ec;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:32px; gap:16px;
+  }
+  #start h1 { font-size:19px; font-weight:600; letter-spacing:-.01em; }
+  #start p { font-size:14px; line-height:1.65; opacity:.72; max-width:330px; }
+  #start .go { margin-top:10px; font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:#4ade80; }
+  #start.hidden { display:none; }
+
+  #flash {
+    position:fixed; top:44%; left:0; right:0; text-align:center; color:#f87171;
+    font-size:22px; font-weight:600; letter-spacing:.02em; opacity:0; pointer-events:none;
+    transition:opacity .12s;
+  }
+  #flash.on { opacity:1; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c"></canvas></div>
+
+<div id="hud">
+  <div class="stat"><span class="k">Držení</span><span class="v" id="cur">0.0</span></div>
+  <div class="stat right"><span class="k">Nejlépe</span><span class="v" id="best">0.0</span></div>
+</div>
+
+<div id="gear">⚙</div>
+
+<div id="panel">
+  <div class="row"><label>Hráčů v mém týmu <b id="lB"></b></label><input type="range" id="sB" min="1" max="6" step="1"></div>
+  <div class="row"><label>Hráčů v týmu soupeře <b id="lR"></b></label><input type="range" id="sR" min="1" max="6" step="1"></div>
+  <div class="row"><label>Rychlost ovládaného hráče <b id="l0"></b></label><input type="range" id="s0" min="120" max="320" step="5"></div>
+  <div class="row"><label>Rychlost spoluhráče (AI) <b id="l1"></b></label><input type="range" id="s1" min="100" max="320" step="5"></div>
+  <div class="row"><label>Rychlost soupeřů (AI) <b id="l2"></b></label><input type="range" id="s2" min="100" max="320" step="5"></div>
+  <div class="row"><label>Dosah zpracování — můj tým <b id="l3"></b></label><input type="range" id="s3" min="16" max="90" step="1"></div>
+  <div class="row"><label>Dosah zpracování — soupeř <b id="l4"></b></label><input type="range" id="s4" min="16" max="90" step="1"></div>
+  <div class="row"><label>Síla přihrávky <b id="l5"></b></label><input type="range" id="s5" min="300" max="1100" step="20"></div>
+  <div class="row"><label>Tření míče <b id="l6"></b></label><input type="range" id="s6" min="80" max="700" step="10"></div>
+  <div class="row"><label>Velikost joysticku <b id="l7"></b></label><input type="range" id="s7" min="40" max="100" step="2"></div>
+  <div class="row"><label>Práh přihrávky <b id="l8"></b></label><input type="range" id="s8" min="100" max="180" step="2"></div>
+  <button id="reset">Reset pozic</button>
+  <button id="defaults">Vrátit výchozí hodnoty</button>
+</div>
+
+<div id="flash">Ztráta míče</div>
+<div id="saved">Nastavení uloženo</div>
+
+<div id="start">
+  <h1>Prototyp: joystick + přihrávka</h1>
+  <p>Palcem drž joystick dole. Čím dál od středu, tím rychleji běžíš — na okraji sprint. <b>Přetáhni prst za okraj a míč se odehraje tím směrem.</b> Před odpálením se objeví šipka.</p>
+  <p>Cíl: udržet míč. Když se tě dotkne červený, ztráta.</p>
+  <div class="go">Klepni pro start</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  var cssW = 0, cssH = 0, scale = 1;
+
+  // ---- logické rozměry hřiště ----
+  var FIELD_W = 600, FIELD_H = 1000;
+  var PH = 15;            // půlka strany hráče
+  var BALL_R = 9;
+
+  // ---- laditelné ----
+  var T = {
+    teamSize: 2,
+    foeSize: 2,
+    playerSpeed: 215,
+    mateSpeed: 190,
+    foeSpeed: 190,
+    pickupMate: 30,
+    pickupFoe: 30,
+    passSpeed: 660,
+    friction: 300,
+    joyR: 62,          // css px
+    passThresh: 122    // % z joyR
+  };
+
+  function resize(){
+    cssW = window.innerWidth; cssH = window.innerHeight;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    cv.width = Math.round(cssW * dpr); cv.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    scale = cssW / FIELD_W;
+    FIELD_H = cssH / scale;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---- entity ----
+  function mk(team){ return { x:0, y:0, fx:0, fy:-1, team:team, tx:0, ty:0, think:0, seed:Math.random()*100 }; }
+  var blue = [], red = [], all = [];
+  function buildTeams(){
+    blue = []; red = [];
+    for(var i=0;i<T.teamSize;i++) blue.push(mk('b'));
+    for(var j=0;j<T.foeSize;j++) red.push(mk('r'));
+    all = blue.concat(red);
+  }
+  buildTeams();
+
+  var ball = { x:0, y:0, vx:0, vy:0, owner:null };
+  var ctrl = blue[0];
+  var lockOut = 0;          // po přihrávce nemůže původní hráč hned sebrat míč
+  var lastPasser = null;
+  var possTime = 0, bestTime = 0;
+  var running = false, deadTime = 0;
+  var time = 0;
+  var roleTimer = 0, lastCarrier = null;
+
+  function reset(){
+    blue[0].x = FIELD_W*0.5; blue[0].y = FIELD_H*0.80;
+    for(var i=1;i<blue.length;i++){
+      var t = blue.length > 2 ? (i-1)/(blue.length-2) : 0.25;
+      blue[i].x = FIELD_W*(0.18 + 0.64*t);
+      blue[i].y = FIELD_H*(0.46 + ((i%2) ? 0.10 : -0.06));
+    }
+    for(var j=0;j<red.length;j++){
+      var u = red.length > 1 ? j/(red.length-1) : 0.5;
+      red[j].x = FIELD_W*(0.22 + 0.56*u);
+      red[j].y = FIELD_H*(0.28 + ((j%2) ? 0.16 : 0));
+    }
+    all.forEach(function(p){ p.fx=0; p.fy=-1; p.tx=p.x; p.ty=p.y; p.think=0; clampField(p); });
+    ball.vx = ball.vy = 0; ball.owner = blue[0];
+    ctrl = blue[0]; lockOut = 0; lastPasser = null;
+    possTime = 0;
+  }
+
+  // ---- vstup ----
+  var joyBase = { x:0, y:0 };
+  var touch = { active:false, id:null, x:0, y:0, armed:true };
+
+  function updateJoyBase(){ joyBase.x = cssW * 0.5; joyBase.y = cssH - Math.max(96, T.joyR + 40); }
+
+  function onDown(x, y, id){
+    if(!running){ document.getElementById('start').classList.add('hidden'); running = true; reset(); return; }
+    touch.active = true; touch.id = id; touch.x = x; touch.y = y; touch.armed = true;
+  }
+  function onMove(x, y, id){ if(touch.active && touch.id === id){ touch.x = x; touch.y = y; } }
+  function onUp(id){ if(touch.id === id){ touch.active = false; touch.id = null; } }
+
+  cv.addEventListener('touchstart', function(e){
+    e.preventDefault();
+    var t = e.changedTouches[0];
+    if(!touch.active) onDown(t.clientX, t.clientY, t.identifier);
+  }, {passive:false});
+  cv.addEventListener('touchmove', function(e){
+    e.preventDefault();
+    for(var i=0;i<e.changedTouches.length;i++){
+      var t = e.changedTouches[i]; onMove(t.clientX, t.clientY, t.identifier);
+    }
+  }, {passive:false});
+  cv.addEventListener('touchend', function(e){
+    e.preventDefault();
+    for(var i=0;i<e.changedTouches.length;i++) onUp(e.changedTouches[i].identifier);
+  }, {passive:false});
+  cv.addEventListener('touchcancel', function(e){
+    for(var i=0;i<e.changedTouches.length;i++) onUp(e.changedTouches[i].identifier);
+  });
+
+  // myš pro desktop
+  cv.addEventListener('mousedown', function(e){ onDown(e.clientX, e.clientY, 'm'); });
+  window.addEventListener('mousemove', function(e){ onMove(e.clientX, e.clientY, 'm'); });
+  window.addEventListener('mouseup', function(){ onUp('m'); });
+  document.getElementById('start').addEventListener('click', function(){
+    document.getElementById('start').classList.add('hidden'); running = true; reset();
+  });
+
+  // ---- pomocné ----
+  function dist(a,b){ var dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
+  function clampField(p){
+    p.x = Math.max(PH, Math.min(FIELD_W-PH, p.x));
+    p.y = Math.max(PH, Math.min(FIELD_H-PH, p.y));
+  }
+  function moveTo(p, tx, ty, sp, dt){
+    var dx = tx-p.x, dy = ty-p.y, d = Math.sqrt(dx*dx+dy*dy);
+    if(d < 2) return;
+    var step = Math.min(sp*dt, d);
+    p.x += dx/d*step; p.y += dy/d*step;
+    if(d > 6){ p.fx = dx/d; p.fy = dy/d; }
+    clampField(p);
+  }
+
+  function doPass(dx, dy){
+    var d = Math.sqrt(dx*dx+dy*dy); if(d < .001) return;
+    var carrier = ball.owner;
+    ball.owner = null;
+    ball.x = carrier.x + dx/d*(PH+BALL_R+2);
+    ball.y = carrier.y + dy/d*(PH+BALL_R+2);
+    ball.vx = dx/d*T.passSpeed; ball.vy = dy/d*T.passSpeed;
+    lastPasser = carrier; lockOut = 0.32;
+    // ovládání zůstává na přihrávajícím, dokud míč někdo nepřevezme
+    ctrl = carrier;
+  }
+
+  function turnover(){
+    bestTime = Math.max(bestTime, possTime);
+    running = false; deadTime = 1.1;
+    var f = document.getElementById('flash'); f.classList.add('on');
+    setTimeout(function(){ f.classList.remove('on'); }, 850);
+  }
+
+  // ---- AI spoluhráče: hledá volný prostor ----
+  // ---- role spoluhráčů: každý dostane vlastní pruh a hloubku ----
+  function assignRoles(carrier){
+    var mates = [];
+    for(var i=0;i<blue.length;i++) if(blue[i] !== carrier) mates.push(blue[i]);
+    mates.sort(function(a,b){ return a.x - b.x; });   // stabilní podle aktuální pozice
+    var n = mates.length;
+    for(var k=0;k<n;k++){
+      var m = mates[k];
+      m.lane = n > 1 ? (k + 0.5)/n : 0.5;
+      m.laneN = n;
+      m.band = k % 2;                    // 0 = náběh vpřed, 1 = podpora vedle/za
+      m.prefD = m.band === 0 ? 330 : 200;
+    }
+  }
+
+  function mateTarget(mate, carrier){
+    if(mate.lane === undefined){ mate.lane = 0.5; mate.laneN = 1; mate.band = 0; mate.prefD = 300; }
+    var laneC = FIELD_W * mate.lane;
+    var halfLane = Math.max(85, (FIELD_W/(2*Math.max(1, mate.laneN))) * 1.45);
+    var yMin, yMax;
+    if(mate.band === 0){ yMin = carrier.y - 430; yMax = carrier.y - 100; }
+    else { yMin = carrier.y - 110; yMax = carrier.y + 200; }
+    yMin = Math.max(45, yMin); yMax = Math.min(FIELD_H-45, yMax);
+    if(yMax - yMin < 70){ yMin = Math.max(45, Math.min(yMin, FIELD_H-175)); yMax = yMin + 130; }
+
+    var best = null, bestScore = -1e9;
+    for(var gx=0; gx<=4; gx++){
+      for(var gy=0; gy<=4; gy++){
+        var px = laneC - halfLane + 2*halfLane*(gx/4);
+        var py = yMin + (yMax - yMin)*(gy/4);
+        if(px < 45 || px > FIELD_W-45) continue;
+
+        var minR = 1e9;
+        for(var i=0;i<red.length;i++){
+          var dx=px-red[i].x, dy=py-red[i].y, d=Math.sqrt(dx*dx+dy*dy);
+          if(d<minR) minR=d;
+        }
+        var minM = 1e9;
+        for(var k=0;k<blue.length;k++){
+          var b = blue[k]; if(b === mate || b === carrier) continue;
+          var mx=px-b.x, my=py-b.y, dm=Math.sqrt(mx*mx+my*my);
+          if(dm<minM) minM=dm;
+        }
+        if(minM === 1e9) minM = 180;
+
+        var dc = Math.sqrt((px-carrier.x)*(px-carrier.x)+(py-carrier.y)*(py-carrier.y));
+        var noise = Math.sin(px*0.021 + mate.seed + time*0.4) * Math.sin(py*0.017 + mate.seed*1.9) * 40;
+        var score = Math.min(minR, 230) * 1.0
+                  + Math.min(minM, 180) * 0.55
+                  - Math.abs(dc - mate.prefD) * 0.45
+                  - Math.abs(px - laneC) * 0.20
+                  + noise;
+        if(score > bestScore){ bestScore = score; best = {x:px, y:py}; }
+      }
+    }
+    if(!best) best = { x: Math.min(FIELD_W-45, Math.max(45, laneC)), y: (yMin+yMax)/2 };
+    return best;
+  }
+
+  // ---- hlavní smyčka ----
+  var last = performance.now();
+  function frame(now){
+    var dt = Math.min((now-last)/1000, 0.033); last = now;
+    updateJoyBase();
+
+    if(!running && deadTime > 0){
+      deadTime -= dt;
+      if(deadTime <= 0){ reset(); running = true; }
+    }
+
+    if(running) step(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  function step(dt){
+    time += dt;
+    if(lockOut > 0) lockOut -= dt;
+
+    // --- ovládaný hráč ---
+    var joyR = T.joyR, thresh = joyR * (T.passThresh/100);
+    var aimX = 0, aimY = 0, aiming = false;
+
+    if(touch.active){
+      var dx = touch.x - joyBase.x, dy = touch.y - joyBase.y;
+      var d = Math.sqrt(dx*dx+dy*dy);
+      if(d > 0.001){
+        var nx = dx/d, ny = dy/d;
+        var sp = T.playerSpeed * Math.min(d/joyR, 1);
+        ctrl.x += nx*sp*dt; ctrl.y += ny*sp*dt;
+        ctrl.fx = nx; ctrl.fy = ny;
+        clampField(ctrl);
+
+        if(d > joyR && d <= thresh && ball.owner === ctrl){ aiming = true; aimX = nx; aimY = ny; }
+        if(d > thresh){
+          if(touch.armed && ball.owner === ctrl){ doPass(nx, ny); touch.armed = false; }
+        } else if(d < joyR*0.9){
+          touch.armed = true;
+        }
+      }
+    }
+
+    // --- spoluhráči bez míče ---
+    var carrier = ball.owner || ctrl;
+    roleTimer -= dt;
+    if(roleTimer <= 0 || carrier !== lastCarrier){
+      assignRoles(carrier); roleTimer = 2.2; lastCarrier = carrier;
+    }
+    for(var i=0;i<blue.length;i++){
+      var m = blue[i];
+      if(m === ctrl) continue;
+      m.think -= dt;
+      if(m.think <= 0){
+        var t = mateTarget(m, carrier);
+        m.tx = t.x; m.ty = t.y; m.think = 0.3 + Math.random()*0.3;
+      }
+      // míč v přihrávce nebo volný: běž rovnou za ním, stejně jako soupeři
+      if(!ball.owner){ m.tx = ball.x; m.ty = ball.y; m.think = 0; }
+      moveTo(m, m.tx, m.ty, T.mateSpeed, dt);
+    }
+
+    // --- soupeři: jeden na míč, ostatní volně hlídají ---
+    var bx = ball.owner ? ball.owner.x : ball.x;
+    var by = ball.owner ? ball.owner.y : ball.y;
+    var chaser = null, chaseD = 1e9;
+    for(var j=0;j<red.length;j++){
+      var cdx = red[j].x-bx, cdy = red[j].y-by, cdd = Math.sqrt(cdx*cdx+cdy*cdy);
+      if(cdd < chaseD){ chaseD = cdd; chaser = red[j]; }
+    }
+    var pool = [];
+    for(var b1=0;b1<blue.length;b1++) if(blue[b1] !== ball.owner) pool.push(blue[b1]);
+
+    for(var j2=0;j2<red.length;j2++){
+      var r = red[j2];
+      if(r === chaser){ moveTo(r, bx, by, T.foeSpeed, dt); continue; }
+      // vyber si nejbližšího nehlídaného modrého
+      var tgt = null, ti = -1, tdBest = 1e9;
+      for(var q=0;q<pool.length;q++){
+        var tdx = r.x-pool[q].x, tdy = r.y-pool[q].y, td = Math.sqrt(tdx*tdx+tdy*tdy);
+        if(td < tdBest){ tdBest = td; ti = q; tgt = pool[q]; }
+      }
+      if(!tgt){ moveTo(r, bx, by, T.foeSpeed*0.85, dt); continue; }
+      pool.splice(ti, 1);
+      // postav se mezi hlídaného a míč, s pomalým nepravidelným driftem
+      var lx = bx - tgt.x, ly = by - tgt.y, ll = Math.sqrt(lx*lx+ly*ly) || 1;
+      var wob = 36;
+      var ox = Math.sin(time*0.63 + r.seed) * wob + Math.sin(time*0.27 + r.seed*3.1) * wob*0.55;
+      var oy = Math.cos(time*0.51 + r.seed*1.7) * wob + Math.sin(time*0.35 + r.seed*2.2) * wob*0.55;
+      var mx2 = tgt.x + lx/ll*40 + ox;
+      var my2 = tgt.y + ly/ll*40 + oy;
+      var gx2 = r.x-mx2, gy2 = r.y-my2;
+      if(Math.sqrt(gx2*gx2+gy2*gy2) > 24) moveTo(r, mx2, my2, T.foeSpeed*0.84, dt);
+    }
+    // rozestup soupeřů
+    for(var a=0;a<red.length;a++){
+      for(var b2=a+1;b2<red.length;b2++){
+        var r1 = red[a], r2 = red[b2];
+        var sx = r1.x-r2.x, sy = r1.y-r2.y, sd = Math.sqrt(sx*sx+sy*sy);
+        if(sd < 42 && sd > 0.01){
+          var px2 = sx/sd, py2 = sy/sd, push = (42-sd)/2;
+          r1.x += px2*push; r1.y += py2*push;
+          r2.x -= px2*push; r2.y -= py2*push;
+          clampField(r1); clampField(r2);
+        }
+      }
+    }
+
+    // --- míč ---
+    if(ball.owner){
+      ball.x = ball.owner.x + ball.owner.fx*(PH+BALL_R+2);
+      ball.y = ball.owner.y + ball.owner.fy*(PH+BALL_R+2);
+      possTime += dt;
+    } else {
+      var sp2 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+      if(sp2 > 0){
+        var ns = Math.max(0, sp2 - T.friction*dt);
+        ball.vx = ball.vx/sp2*ns; ball.vy = ball.vy/sp2*ns;
+      }
+      ball.x += ball.vx*dt; ball.y += ball.vy*dt;
+      if(ball.x < BALL_R){ ball.x = BALL_R; ball.vx = -ball.vx*0.72; }
+      if(ball.x > FIELD_W-BALL_R){ ball.x = FIELD_W-BALL_R; ball.vx = -ball.vx*0.72; }
+      if(ball.y < BALL_R){ ball.y = BALL_R; ball.vy = -ball.vy*0.72; }
+      if(ball.y > FIELD_H-BALL_R){ ball.y = FIELD_H-BALL_R; ball.vy = -ball.vy*0.72; }
+      possTime += dt;
+
+      // zpracování vlastním týmem
+      for(var k=0;k<blue.length;k++){
+        var p = blue[k];
+        if(p === lastPasser && lockOut > 0) continue;
+        if(dist(p, ball) < T.pickupMate){ ball.owner = p; ball.vx = ball.vy = 0; break; }
+      }
+    }
+
+    // --- míč v dosahu soupeře = ztráta (platí i při driblování) ---
+    for(var q3=0;q3<red.length;q3++){
+      if(dist(red[q3], ball) < T.pickupFoe){ turnover(); return; }
+    }
+
+    // --- kdo je ovládaný: přepnutí až v momentě převzetí míče ---
+    if(ball.owner && ball.owner.team === 'b'){
+      ctrl = ball.owner;
+    }
+
+    document.getElementById('cur').textContent = possTime.toFixed(1);
+    document.getElementById('best').textContent = Math.max(bestTime, possTime).toFixed(1);
+
+    // uložit aiming pro vykreslení
+    drawAim = aiming ? {x:aimX, y:aimY} : null;
+  }
+
+  var drawAim = null;
+
+  // ---- vykreslení ----
+  function X(v){ return v*scale; }
+
+  function draw(){
+    ctx.clearRect(0,0,cssW,cssH);
+
+    // trávník
+    ctx.fillStyle = '#1d4d34';
+    ctx.fillRect(0,0,cssW,cssH);
+    ctx.fillStyle = 'rgba(255,255,255,0.022)';
+    var stripe = X(FIELD_H/10);
+    for(var s=0;s<10;s+=2) ctx.fillRect(0, s*stripe, cssW, stripe);
+
+    // čáry
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 2;
+    ctx.strokeRect(X(10), X(10), X(FIELD_W-20), X(FIELD_H-20));
+    ctx.beginPath();
+    ctx.moveTo(X(10), X(FIELD_H/2)); ctx.lineTo(X(FIELD_W-10), X(FIELD_H/2));
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(X(FIELD_W/2), X(FIELD_H/2), X(75), 0, Math.PI*2);
+    ctx.stroke();
+
+    // hráči
+    for(var i=0;i<all.length;i++){
+      var p = all[i];
+      var isCtrl = (p === ctrl);
+      // dosah zpracování
+      ctx.beginPath();
+      ctx.arc(X(p.x), X(p.y), X(p.team === 'b' ? T.pickupMate : T.pickupFoe), 0, Math.PI*2);
+      ctx.strokeStyle = p.team === 'b' ? 'rgba(147,197,253,0.32)' : 'rgba(252,165,165,0.32)';
+      ctx.lineWidth = 1.5; ctx.stroke();
+      if(isCtrl){
+        ctx.beginPath();
+        ctx.arc(X(p.x), X(p.y), X(PH*1.9), 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(255,255,255,0.13)'; ctx.fill();
+      }
+      ctx.fillStyle = p.team === 'b' ? (isCtrl ? '#60a5fa' : '#2563eb') : '#ef4444';
+      ctx.fillRect(X(p.x-PH), X(p.y-PH), X(PH*2), X(PH*2));
+      // směr
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(X(p.x), X(p.y));
+      ctx.lineTo(X(p.x + p.fx*PH*1.5), X(p.y + p.fy*PH*1.5));
+      ctx.stroke();
+    }
+
+    // šipka míření
+    if(drawAim && ball.owner){
+      var ax = ball.owner.x, ay = ball.owner.y, L = 130;
+      ctx.strokeStyle = 'rgba(250,204,21,0.85)'; ctx.lineWidth = 3;
+      ctx.setLineDash([X(9), X(9)]);
+      ctx.beginPath();
+      ctx.moveTo(X(ax + drawAim.x*PH*1.8), X(ay + drawAim.y*PH*1.8));
+      ctx.lineTo(X(ax + drawAim.x*L), X(ay + drawAim.y*L));
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // míč
+    ctx.beginPath();
+    ctx.arc(X(ball.x), X(ball.y), X(BALL_R), 0, Math.PI*2);
+    ctx.fillStyle = '#fde047'; ctx.fill();
+
+    // joystick
+    var jr = T.joyR, th = jr*(T.passThresh/100);
+    ctx.beginPath(); ctx.arc(joyBase.x, joyBase.y, jr, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.30)'; ctx.lineWidth = 2; ctx.stroke();
+    // prstenec prahu přihrávky
+    ctx.beginPath(); ctx.arc(joyBase.x, joyBase.y, th, 0, Math.PI*2);
+    ctx.setLineDash([6,7]);
+    ctx.strokeStyle = 'rgba(250,204,21,0.42)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.setLineDash([]);
+
+    if(touch.active){
+      var dx = touch.x - joyBase.x, dy = touch.y - joyBase.y;
+      var d = Math.sqrt(dx*dx+dy*dy) || 1;
+      var cl = Math.min(d, th);
+      var kx = joyBase.x + dx/d*cl, ky = joyBase.y + dy/d*cl;
+      ctx.beginPath(); ctx.arc(kx, ky, 22, 0, Math.PI*2);
+      ctx.fillStyle = d > jr ? 'rgba(250,204,21,0.9)' : 'rgba(255,255,255,0.75)';
+      ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(joyBase.x, joyBase.y, 22, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.fill();
+    }
+  }
+
+  // ---- posuvníky + ukládání nastavení ----
+  var STORE_KEY = 'fbproto_tuning_v1';
+  var DEFAULTS = JSON.parse(JSON.stringify(T));
+  var controls = [];
+  var saveTimer = null;
+
+  function flashSaved(){
+    var el = document.getElementById('saved');
+    el.classList.add('on');
+    setTimeout(function(){ el.classList.remove('on'); }, 900);
+  }
+  function writeStore(data){
+    try {
+      if(window.storage && window.storage.set){
+        window.storage.set(STORE_KEY, data).then(flashSaved).catch(function(){});
+        return;
+      }
+    } catch(e){}
+    try { window.localStorage.setItem(STORE_KEY, data); flashSaved(); } catch(e){}
+  }
+  function queueSave(){
+    if(saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(function(){ writeStore(JSON.stringify(T)); }, 500);
+  }
+  function syncSliders(){
+    controls.forEach(function(c){ c.s.value = T[c.key]; c.l.textContent = T[c.key]; });
+  }
+  function applyLoaded(obj){
+    if(!obj) return;
+    Object.keys(DEFAULTS).forEach(function(k){ if(typeof obj[k] === 'number') T[k] = obj[k]; });
+    syncSliders(); buildTeams(); reset();
+  }
+  function localLoad(){
+    try {
+      var v = window.localStorage.getItem(STORE_KEY);
+      if(v) applyLoaded(JSON.parse(v));
+    } catch(e){}
+  }
+  function loadStore(){
+    try {
+      if(window.storage && window.storage.get){
+        window.storage.get(STORE_KEY)
+          .then(function(r){ if(r && r.value) applyLoaded(JSON.parse(r.value)); })
+          .catch(function(){ localLoad(); });
+        return;
+      }
+    } catch(e){}
+    localLoad();
+  }
+
+  function register(sliderId, labelId, key, rebuild){
+    var s = document.getElementById(sliderId), l = document.getElementById(labelId);
+    controls.push({ s:s, l:l, key:key });
+    s.value = T[key]; l.textContent = T[key];
+    s.addEventListener('input', function(){
+      T[key] = +s.value; l.textContent = s.value;
+      if(rebuild){
+        bestTime = Math.max(bestTime, possTime);
+        buildTeams(); reset(); running = true; deadTime = 0;
+      }
+      queueSave();
+    });
+  }
+
+  register('sB', 'lB', 'teamSize', true);
+  register('sR', 'lR', 'foeSize', true);
+  ['playerSpeed','mateSpeed','foeSpeed','pickupMate','pickupFoe','passSpeed','friction','joyR','passThresh']
+    .forEach(function(k, i){ register('s'+i, 'l'+i, k, false); });
+
+  document.getElementById('gear').addEventListener('click', function(){
+    document.getElementById('panel').classList.toggle('open');
+  });
+  document.getElementById('reset').addEventListener('click', function(){
+    bestTime = Math.max(bestTime, possTime); reset(); running = true;
+  });
+  document.getElementById('defaults').addEventListener('click', function(){
+    Object.keys(DEFAULTS).forEach(function(k){ T[k] = DEFAULTS[k]; });
+    syncSliders(); buildTeams(); reset(); running = true; deadTime = 0; queueSave();
+  });
+  loadStore();
+
+  reset();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
