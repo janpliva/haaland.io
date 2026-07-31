@@ -13,7 +13,10 @@ export const S = {
 };
 
 export const ball = { x:0, y:0, vx:0, vy:0, owner:null, gained:0,
-                      lastTouch:0,                 // kdy do míče držitel naposled kopl
+                      // cyklus doteku: dokud attached, pozice míče se počítá, ne simuluje
+                      attached:false, held:false,  // held = držitel stojí, míč čeká u nohy
+                      tdx:0, tdy:-1,               // směr předkopu, vzorkovaný při doteku
+                      csf:0, cycleT:0, cycleDur:0, maxLead:0,
                       pending:null,                // nachystaná přihrávka, odehraje se až při doteku
                       chaser:{ b:null, r:null },   // kdo si za míčem jde; mění se jen při změně držení
                       chaseDir:{ x:0, y:0 } };     // směr míče při posledním výběru, na odhalení odrazu
@@ -45,11 +48,10 @@ export function clampField(p){
   p.y = Math.max(PH, Math.min(S.FIELD_H-PH, p.y));
 }
 
-// bx/by/bsf = nabufferovaný vstup (stick u člověka, směr k cíli u AI) — projeví se až u doteku.
-// lx/ly/lsf = zamčený vektor, po kterém držitel běží mezi doteky. lockOn = jestli zámek platí.
+// bx/by/bsf = nabufferovaný vstup (stick u člověka, směr k cíli u AI) — projeví se až u doteku
 export function mk(team){ return { x:0, y:0, fx:0, fy:-1, team:team, tx:0, ty:0, think:0,
                             seed:Math.random()*100, sf:0, role:'', plan:null, side:0,
-                            bx:0, by:-1, bsf:0, lx:0, ly:-1, lsf:0, lockOn:false,
+                            bx:0, by:-1, bsf:0,
                             shotOn:false, shotId:0, shotDeadline:0, shotX:0, shotY:0 }; }
 
 export function buildTeams(){
@@ -80,12 +82,14 @@ export function reset(kickTeam){
   E.all.forEach(function(p){
     p.fx = 0; p.fy = dirOf(p.team); p.tx = p.x; p.ty = p.y;
     p.think = 0; p.sf = 0; p.plan = null; clampField(p);
-    p.bx = p.fx; p.by = p.fy; p.bsf = 0; p.lx = p.fx; p.ly = p.fy; p.lsf = 0; p.lockOn = false;
+    p.bx = p.fx; p.by = p.fy; p.bsf = 0;
   });
   // rozehrává inkasující tým
   var starter = kickTeam === 'b' ? E.blue[0] : E.red[0];
   ball.vx = ball.vy = 0; ball.owner = starter; ball.gained = S.time;
-  ball.lastTouch = S.time; ball.pending = null;
+  ball.pending = null; ball.attached = false; ball.held = false;
+  ball.cycleT = 0; ball.cycleDur = 0; ball.maxLead = 0;
+  ball.tdx = starter.fx; ball.tdy = starter.fy; ball.csf = 0;
   ball.x = starter.x + starter.fx*CONTACT;
   ball.y = starter.y + starter.fy*CONTACT;
   S.lastTeam = kickTeam;
