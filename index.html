@@ -110,7 +110,7 @@
   <div class="row"><label>Dosah zpracování — soupeř <b id="l13"></b></label><input type="range" id="s13" min="16" max="90" step="1"></div>
   <div class="row"><label>Nepřesnost AI (°) <b id="l14"></b></label><input type="range" id="s14" min="0" max="35" step="1"></div>
   <div class="row"><label>Odkud AI střílí <b id="l15"></b></label><input type="range" id="s15" min="200" max="1600" step="20"></div>
-  <div class="row"><label>Dosah brankáře <b id="l16"></b></label><input type="range" id="s16" min="0" max="120" step="5"></div>
+  <div class="row"><label>Vysunutí brankáře <b id="l16"></b></label><input type="range" id="s16" min="0" max="160" step="5"></div>
   <div class="row"><label>Sólo koridor <b id="l17"></b></label><input type="range" id="s17" min="20" max="160" step="5"></div>
   <div class="row"><label>Dosah síly přihrávky <b id="l18"></b></label><input type="range" id="s18" min="40" max="260" step="5"></div>
   <div class="row"><label>Nejslabší přihrávka (%) <b id="l19"></b></label><input type="range" id="s19" min="10" max="90" step="5"></div>
@@ -126,6 +126,14 @@
   <div class="row"><label>Dojezdová rychlost přihrávky AI <b id="l29"></b></label><input type="range" id="s29" min="50" max="500" step="10"></div>
   <div class="row"><label>Držení plánu AI (ms) <b id="l30"></b></label><input type="range" id="s30" min="100" max="1500" step="50"></div>
   <div class="row"><label>Přerušení plánu tlakem <b id="l31"></b></label><input type="range" id="s31" min="40" max="250" step="5"></div>
+  <div class="row"><label>Reakce brankáře (ms) <b id="l32"></b></label><input type="range" id="s32" min="0" max="500" step="10"></div>
+  <div class="row"><label>Nepřesnost brankáře <b id="l33"></b></label><input type="range" id="s33" min="0" max="200" step="5"></div>
+  <div class="row"><label>Rychlost zákroku (%) <b id="l34"></b></label><input type="range" id="s34" min="100" max="300" step="5"></div>
+  <div class="row"><label>Rychlost odrazu místo chycení <b id="l35"></b></label><input type="range" id="s35" min="200" max="1000" step="20"></div>
+  <div class="row"><label>Síla odrazu (%) <b id="l36"></b></label><input type="range" id="s36" min="10" max="90" step="5"></div>
+  <div class="row"><label>Držení míče brankářem (ms) <b id="l37"></b></label><input type="range" id="s37" min="300" max="3000" step="100"></div>
+  <div class="row"><label>Bezpečná zóna pro výběh <b id="l38"></b></label><input type="range" id="s38" min="80" max="600" step="10"></div>
+  <div class="row"><label>Jak daleko smí brankář vyjet <b id="l39"></b></label><input type="range" id="s39" min="0" max="500" step="10"></div>
   <button id="reset">Reset pozic</button>
   <button id="defaults">Vrátit výchozí hodnoty</button>
 </div>
@@ -174,7 +182,7 @@
     foePickup: 55,     // dosah zpracování soupeře; zároveň strop rychlosti jeho driblinku
     foeError: 0,       // nepřesnost AI přihrávek a střel ve stupních
     shootRange: 700,   // odkud dál už AI na branku nestřílí
-    gkReach: 55,       // dosah brankáře; 0 = brankář nic nechytí
+    gkDepth: 55,       // jak daleko od vlastní čáry se brankář smí postavit (už ne dosah chytání)
     soloLane: 50,      // jak volný musí být koridor k brance, aby si AI šla sama
     passRange: 120,    // o kolik css px za prahem je přihrávka už na plnou sílu
     passMin: 40,       // nejslabší přihrávka v % ze „Síly přihrávky"
@@ -189,7 +197,15 @@
     interceptEff: 90,  // % rychlosti, se kterou hráč počítá při náběhu na míč
     aiArrive: 220,     // s jakou rychlostí má přihrávka AI dorazit k cíli
     planHold: 500,     // jak dlouho drží AI plán, než ho přepočítá (ms)
-    planBreak: 90      // pod jakou vzdálenost soupeře se plán přeruší dřív
+    planBreak: 90,     // pod jakou vzdálenost soupeře se plán přeruší dřív
+    gkReaction: 180,   // než brankář na střelu zareaguje (ms)
+    gkError: 45,       // nepřesnost odhadu místa zákroku
+    gkDiveSpeed: 160,  // % rychlosti při zákroku
+    gkParrySpeed: 520, // nad tuhle rychlost míč jen vyrazí, nechytí
+    gkParryKeep: 45,   // kolik % rychlosti si vyražený míč nechá
+    gkHoldMax: 1200,   // jak dlouho je brankář s míčem ve vápně nedotknutelný (ms)
+    gkVentureSafe: 260,// nikdo blíž než tohle → brankář si smí vyjet
+    gkVenture: 150     // o kolik za vápno smí brankář s míčem vyjet
   };
   var STEAL_LOCK = 0.5;   // po odebrání si původní držitel nemůže hned vzít míč zpět
 
@@ -207,7 +223,8 @@
 
   // ---- entity ----
   function mk(team){ return { x:0, y:0, fx:0, fy:-1, team:team, tx:0, ty:0, think:0,
-                              seed:Math.random()*100, sf:0, role:'', plan:null, side:0 }; }
+                              seed:Math.random()*100, sf:0, role:'', plan:null, side:0,
+                              shotOn:false, shotId:0, shotDeadline:0, shotX:0, shotY:0 }; }
   var blue = [], red = [], all = [], gkB = null, gkR = null;
   function buildTeams(){
     blue = []; red = [];
@@ -224,9 +241,24 @@
   function matesOf(p){ return p.team === 'b' ? blue : red; }
   function attackY(team){ return team === 'b' ? 0 : FIELD_H; }   // branka, na kterou tým útočí
   function dirOf(team){ return team === 'b' ? -1 : 1; }          // kterým směrem útočí
-  function pickupOf(p){ return p.role === 'gk' ? T.gkReach : (p.team === 'b' ? T.pickupMate : T.foePickup); }
+  // brankář nemá žádný kouzelný dosah — chytá jen tělem, stejně jako kdokoliv jiný
+  function pickupOf(p){ return p.role === 'gk' ? CONTACT : (p.team === 'b' ? T.pickupMate : T.foePickup); }
   // na jakou vzdálenost hráč odebere míč soupeři; brankář dosáhne dál (zákrok, ne dotyk)
-  function stealR(p){ return p.role === 'gk' ? Math.max(PH + T.tackleR, T.gkReach) : PH + T.tackleR; }
+  function stealR(p){ return PH + T.tackleR; }
+  // vlastní vápno brankáře: kam se smí postavit a kde je chráněný
+  function ownBoxOf(p){
+    var own = p.team === 'b' ? FIELD_H : 0, far = own + dirOf(p.team)*boxD();
+    return { x0: FIELD_W/2 - boxW()/2, x1: FIELD_W/2 + boxW()/2,
+             y0: Math.min(own, far), y1: Math.max(own, far), own: own };
+  }
+  function clampToBox(p, x, y){
+    var b = ownBoxOf(p);
+    return { x: Math.max(b.x0, Math.min(b.x1, x)), y: Math.max(b.y0, Math.min(b.y1, y)) };
+  }
+  function inOwnBox(p){
+    var b = ownBoxOf(p);
+    return p.x >= b.x0 && p.x <= b.x1 && p.y >= b.y0 && p.y <= b.y1;
+  }
   function speedOf(p){ return p === ctrl ? T.playerSpeed : (p.team === 'b' ? T.mateSpeed : T.foeSpeed); }
   // vápno — roste se šířkou branky, takže se ladí jedním posuvníkem
   function boxW(){ return Math.min(FIELD_W*0.70, T.goalW*2.9); }
@@ -598,17 +630,64 @@
   }
 
   // ---- brankář: drží se na čáře a posouvá se za míčem ----
+  // střela = volný míč mířící k mé brance, jehož přímá dráha protne branku
+  var shotSeq = 0;
+  function goalBound(g){
+    if(ball.owner) return false;
+    if(Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy) < 1) return false;
+    var own = g.team === 'b' ? FIELD_H : 0;
+    if(ball.vy * (-dirOf(g.team)) <= 0) return false;      // neletí k mé brance
+    var t = (own - ball.y) / ball.vy;
+    if(!(t > 0)) return false;
+    return Math.abs(ball.x + ball.vx*t - FIELD_W/2) < T.goalW/2;
+  }
+  // kde míč protne brankářovu výšku — se stejným zpomalením jako interceptSolve
+  function crossX(gy){
+    var v0 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+    if(v0 < 0.001) return ball.x;
+    var tStop = v0/T.friction, prev = ball.y - gy;
+    for(var t=0.02; t<=tStop; t+=0.02){
+      var b = ballAtT(t, v0), cur = b.y - gy;
+      if((prev < 0) !== (cur < 0)) return b.x;
+      prev = cur;
+    }
+    return ballAtT(tStop, v0).x;                           // nedoletí → kde skončí
+  }
+
   function playKeeper(g, dt){
     if(ball.owner === g) return;                       // má míč, řeší ho driveCarrier
-    var own = g.team === 'b' ? FIELD_H : 0;            // vlastní branka
-    var cx = FIELD_W/2;
-    // postav se na spojnici míč–branka; čím blíž je míč, tím blíž čáře zůstaň
+    var own = g.team === 'b' ? FIELD_H : 0, cx = FIELD_W/2;
+
+    // parametry zákroku se vzorkují JEDNOU na začátku střely a do konce se nepřepočítávají
+    if(goalBound(g)){
+      if(!g.shotOn){
+        shotSeq++; g.shotOn = true; g.shotId = shotSeq;
+        g.shotDeadline = time + T.gkReaction/1000;
+        g.shotX = crossX(g.y) + (Math.random()*2 - 1)*T.gkError;
+        g.shotY = g.y;
+      }
+    } else g.shotOn = false;
+
+    if(g.shotOn && time >= g.shotDeadline){            // po reakční době teprve zasahuje
+      var s = clampToBox(g, g.shotX, g.shotY);
+      moveTo(g, s.x, s.y, speedOf(g)*(T.gkDiveSpeed/100), dt);
+      return;
+    }
+    // normální postavení: na spojnici míč–branka, ale nejvýš gkDepth od čáry a jen ve vápně
     var dx = ball.x - cx, dy = ball.y - own, L = Math.sqrt(dx*dx+dy*dy) || 1;
-    var out = Math.min(T.gkReach*2.2, L*0.4);
-    var gx = cx + dx/L*out, gy = own + dy/L*out;
-    var lim = T.goalW*0.5 + 40;
-    gx = cx + Math.max(-lim, Math.min(lim, gx - cx));
-    moveTo(g, gx, gy, speedOf(g), dt);
+    var out = Math.min(T.gkDepth, L*0.4);
+    var q = clampToBox(g, cx + dx/L*out, own + dy/L*out);
+    moveTo(g, q.x, q.y, speedOf(g), dt);
+  }
+
+  // rychlý míč brankář nechytí, jen vyrazí pryč od své branky
+  function parry(g){
+    var v = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+    var a = Math.atan2(dirOf(g.team), 0) + (Math.random()*2 - 1)*(50*Math.PI/180);
+    var nv = v * (T.gkParryKeep/100);
+    ball.vx = Math.cos(a)*nv; ball.vy = Math.sin(a)*nv;
+    lockedPlayer = g; lockOut = STEAL_LOCK;            // vlastní odraz si hned nesebere
+    pickChasers();
   }
 
   // ---- hráč s míčem: střílí / přihrává / dribluje ----
@@ -692,7 +771,14 @@
     }
 
     // brankář bez přihrávky míč vykopne dopředu
-    if(p.role === 'gk') return kickPlan((Math.random()-0.5)*600, dir*900);
+    if(p.role === 'gk'){
+      // nikdo blízko → rozehraje nohama, ale nejdál boxD()+gkVenture od vlastní branky
+      if(press > T.gkVentureSafe){
+        var ogk = p.team === 'b' ? FIELD_H : 0;
+        return { kick:false, x: p.x, y: ogk + dir*(boxD() + T.gkVenture) };
+      }
+      return kickPlan((Math.random()-0.5)*600, dir*900);   // jinak nakopne dopředu
+    }
 
     // 5) driblink k brance; ve vápně se stahuj do osy a nezabíhej za brankovou čáru
     var tx = p.x + (gx - p.x)*(advanced ? 0.75 : 0.35), ty = p.y + dir*320;
@@ -940,7 +1026,10 @@
     }
 
     // --- odebrání: soupeř, který se dotkne míče, ho získá (platí i u nohy) ---
-    if(ball.owner){
+    // brankář s míčem ve vlastním vápně je po gkHoldMax nedotknutelný, pak už ne
+    var gkSafe = ball.owner && ball.owner.role === 'gk' && inOwnBox(ball.owner)
+                 && (time - ball.gained) < T.gkHoldMax/1000;
+    if(ball.owner && !gkSafe){
       var fo = foesOf(ball.owner);
       for(var s1=0;s1<fo.length;s1++){
         if(fo[s1] === lockedPlayer && lockOut > 0) continue;
@@ -966,7 +1055,11 @@
         if(pd < pickupOf(p) && pd < takeD){ takeD = pd; taker = p; }
       }
       // zpracování míč zastaví
-      if(taker){ ball.owner = taker; ball.vx = ball.vy = 0; ownD = takeD; lastTeam = taker.team; ball.gained = time; pickChasers(); }
+      if(taker){
+        var tv = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+        if(taker.role === 'gk' && tv > T.gkParrySpeed) parry(taker);   // moc rychlé na chycení
+        else { ball.owner = taker; ball.vx = ball.vy = 0; ownD = takeD; lastTeam = taker.team; ball.gained = time; pickChasers(); }
+      }
     }
 
     // --- vedení míče: v poli kolem hráče ho hráč vede a míč poslouchá i změnu směru;
@@ -1058,12 +1151,12 @@
       var p = all[i];
       var isCtrl = (p === ctrl);
       // dosah zpracování — teď hraje roli u obou týmů
+      // brankář žádný kruh nemá — chytá tělem, tak ať to nevypadá jako dosah
       var pr = pickupOf(p);
-      if(pr > 0){
+      if(pr > 0 && p.role !== 'gk'){
         ctx.beginPath();
         ctx.arc(X(p.x), X(p.y), X(pr), 0, Math.PI*2);
-        ctx.strokeStyle = p.role === 'gk' ? 'rgba(250,204,21,0.42)'
-                        : (p.team === 'b' ? 'rgba(147,197,253,0.32)' : 'rgba(252,165,165,0.30)');
+        ctx.strokeStyle = p.team === 'b' ? 'rgba(147,197,253,0.32)' : 'rgba(252,165,165,0.30)';
         ctx.lineWidth = 1.5; ctx.stroke();
       }
       if(isCtrl){
@@ -1073,10 +1166,11 @@
       }
       ctx.fillStyle = p.role === 'gk' ? (p.team === 'b' ? '#a3e635' : '#f59e0b')
                     : (p.team === 'b' ? (isCtrl ? '#60a5fa' : '#2563eb') : '#ef4444');
-      ctx.fillRect(X(p.x-PH), X(p.y-PH), X(PH*2), X(PH*2));
+      var hw = p.role === 'gk' ? PH*1.6 : PH;   // brankář je širší než vysoký
+      ctx.fillRect(X(p.x-hw), X(p.y-PH), X(hw*2), X(PH*2));
       if(p === ball.owner){          // kdo má míč
         ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2;
-        ctx.strokeRect(X(p.x-PH), X(p.y-PH), X(PH*2), X(PH*2));
+        ctx.strokeRect(X(p.x-hw), X(p.y-PH), X(hw*2), X(PH*2));
       }
       // směr
       ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;
@@ -1206,7 +1300,7 @@
   register('sB', 'lB', 'teamSize', true);
   register('sR', 'lR', 'foeSize', true);
   // POZOR: pořadí v poli určuje id posuvníku (s0…sN). Přidávat jen na konec.
-  ['playerSpeed','mateSpeed','foeSpeed','pickupMate','tackleR','passSpeed','friction','joyR','passThresh','dribbleKick','ballFollow','goalW','targetGoals','foePickup','foeError','shootRange','gkReach','soloLane','passRange','passMin','aimLen','markDist','markShift','lineGap','pressDist','wobbleNear','runDepth','passLead','interceptEff','aiArrive','planHold','planBreak']
+  ['playerSpeed','mateSpeed','foeSpeed','pickupMate','tackleR','passSpeed','friction','joyR','passThresh','dribbleKick','ballFollow','goalW','targetGoals','foePickup','foeError','shootRange','gkDepth','soloLane','passRange','passMin','aimLen','markDist','markShift','lineGap','pressDist','wobbleNear','runDepth','passLead','interceptEff','aiArrive','planHold','planBreak','gkReaction','gkError','gkDiveSpeed','gkParrySpeed','gkParryKeep','gkHoldMax','gkVentureSafe','gkVenture']
     .forEach(function(k, i){ register('s'+i, 'l'+i, k, false); });
 
   document.getElementById('gear').addEventListener('click', function(){

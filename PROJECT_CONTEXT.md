@@ -5,7 +5,7 @@ Written for a session with no memory of this project. Everything below was read 
 
 ## 1. What this is
 
-A mobile-first top-down football prototype. One file, `index.html` (1229 lines), plain
+A mobile-first top-down football prototype. One file, `index.html` (1323 lines), plain
 canvas 2D, no build step, no npm, no framework. UI text is Czech (`<html lang="cs">`).
 
 It is a **feel test for one mechanic**, not a game. The question it exists to answer:
@@ -252,15 +252,47 @@ after, 0:1 in 60 s and 0:4 in 120 s. Same keeper, same everything else — the d
 that attacks now end in a shot.
 
 ### Keepers
-One per team, outside `teamSize`, created in `buildTeams` and never `ctrl`. `playKeeper`
-puts them on the ball→goal line at `min(gkReach * 2.2, distance * 0.4)` out, clamped
-laterally to the goal width. `gkReach` is therefore one lever for both how far they come out
-and how far they can grab — turn it down and they concede, turn it up and they smother.
-`gkReach = 0` effectively disables them.
+One per team, outside `teamSize`, created in `buildTeams` and never `ctrl`.
 
-Measured with nobody defending (the human standing still) on a phone-shaped pitch:
-`gkReach 20` → 0:3 in 60 s; `gkReach 55` → 0:0 over two minutes. The playable value is
-somewhere between and is the human's to find.
+**The keeper has no magic radius.** `pickupOf(gk)` is `CONTACT` (his body) and `stealR` has no
+keeper branch at all, so he catches only what he physically reaches. Earlier he absorbed
+anything inside a 55-unit circle, which made him a wall — measured 0:0 over 150 s. He is drawn
+as a rectangle 1.6× wider than tall and has no circle, so the sprite no longer implies reach.
+
+**Positioning.** `playKeeper` puts him on the ball→goal line at `min(gkDepth, distance * 0.4)`
+out, clamped to his own penalty box at all times. `gkDepth` now means only how far off his line
+he stands — nothing to do with catching.
+
+**Shot detection and the save.** A shot is any loose ball whose velocity has a component toward
+his goal and whose straight-line projection crosses the goal mouth, whoever kicked it. On first
+detection it is latched — `shotId`, a `gkReaction` deadline and a one-off `gkError` offset are
+sampled once and never resampled until the shot ends. The save point is the ball's x where it
+crosses his current y under the same constant-deceleration model as `interceptSolve`. Before
+the deadline he keeps positioning normally; after it he moves to the save point at
+`gkDiveSpeed` %. He can therefore simply fail to arrive.
+
+**Parry vs catch.** On contact, a ball faster than `gkParrySpeed` is not caught: it is deflected
+away from his goal with up to 50° of random lateral spread at `gkParryKeep` % of its speed, and
+`lockedPlayer`/`lockOut` stop him re-collecting his own parry.
+
+**On the ball.** Inside his box he is unstealable for `gkHoldMax` ms, then not. His `decide()`
+order is: play a teammate pass if one passes `laneClear` (weighted by `speedForDistance` like
+any pass) → else dribble out if no opponent is within `gkVentureSafe`, never further from his
+goal than `boxD() + gkVenture` → else hoof it clear at full power.
+
+Measured over ~60 000 frames per bucket, save rate against decided shots:
+
+| shot speed | decided | goals | saves |
+|---|---|---|---|
+| ~297 | 50 | 12 | **76 %** |
+| ~477 | 74 | 28 | **62 %** |
+| ~657 | 62 | 30 | **52 %** |
+
+Falls monotonically with speed, and fast shots go in regularly. At defaults a natural run
+finished 0:5, against 0:0 for the old absorber. Parries only occur above `gkParrySpeed` 520 —
+none at all in the 297 and 477 buckets, 12 across the fast runs, and the keeper re-collected
+his own parry **zero** times. Neither keeper ever exceeded `boxD() + gkVenture` = 558 from his
+own goal; the most observed was 362.
 
 ### Goals, scoring, match
 Both goals are centred on `FIELD_W/2`, mouth `goalW` wide. You attack the top (`y = 0`);
@@ -451,7 +483,7 @@ All exposed in the gear panel and persisted. Defaults are as written in `T`
 | `foePickup` | 55 | 16–90 (1) | units | Red reception/control zone — their equivalent of `pickupMate`. **Also caps how fast the AI can dribble**: below about 51 the AI must slow down to keep the ball, and at 30 it crawls. |
 | `foeError` | 0 | 0–35 (°) | degrees | Random rotation applied to every AI pass and shot. The AI's only source of mistakes. |
 | `shootRange` | 700 | 200–1600 (20) | units | How close to goal an AI carrier must be before it will shoot. |
-| `gkReach` | 55 | 0–120 (5) | units | Keeper's grab radius **and**, at 2.2×, how far it comes off its line. 0 disables the keeper. |
+| `gkDepth` | 55 | 0–160 (5) | units | How far off his line the keeper stands. Positioning only — he catches with his body. Renamed from `gkReach`, so old saved settings fall back to the default. |
 | `soloLane` | 50 | 20–160 (5) | units | How clear the straight line to goal must be before a central carrier goes alone and stops looking for a pass. |
 | `passRange` | 120 | 40–260 (5) | css px | How far past the threshold ring the thumb must travel for a full-power pass. |
 | `passMin` | 40 | 10–90 (5) | % of `passSpeed` | Weakest possible pass, played when the thumb is released right on the ring. |
@@ -467,6 +499,14 @@ All exposed in the gear panel and persisted. Defaults are as written in `T`
 | `aiArrive` | 220 | 50–500 (10) | units/s | Speed an AI pass should still have on arrival. Drives the distance-scaled pass power. |
 | `planHold` | 500 | 100–1500 (50) | ms | How long an AI carrier keeps a non-kick plan before reconsidering. |
 | `planBreak` | 90 | 40–250 (5) | units | Opponent proximity that breaks the plan early. |
+| `gkReaction` | 180 | 0–500 (10) | ms | Delay before the keeper reacts to a detected shot. |
+| `gkError` | 45 | 0–200 (5) | units | One-off random error on the sampled save point. |
+| `gkDiveSpeed` | 160 | 100–300 (5) | % | Speed multiplier while moving to the save point. |
+| `gkParrySpeed` | 520 | 200–1000 (20) | units/s | Above this the keeper parries instead of catching. |
+| `gkParryKeep` | 45 | 10–90 (5) | % | Share of speed a parried ball keeps. |
+| `gkHoldMax` | 1200 | 300–3000 (100) | ms | How long the keeper is unstealable inside his own box. |
+| `gkVentureSafe` | 260 | 80–600 (10) | units | No opponent this close means he may dribble out. |
+| `gkVenture` | 150 | 0–500 (10) | units | How far beyond the box he may carry the ball. |
 
 Sliders `sB`/`sR` rebuild the teams; the other ten are wired by array index to `s0`–`s9`
 (`index.html:656`), so **adding a tunable to that array shifts every id after it** — append
