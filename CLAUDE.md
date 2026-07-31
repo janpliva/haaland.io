@@ -23,7 +23,7 @@ python3 -m http.server 8000
 
 ## File layout
 
-- **`index.html` is at 1138 lines — past the ~1000 threshold. The split into plain
+- **`index.html` is at 1229 lines — past the ~1000 threshold. The split into plain
   `<script>` files is now due and should happen before the next feature.** Suggested cut:
   tuning + storage, entities + physics, AI, render, input, main.
 - After that, split into plain `<script>` files loaded with `<script src="...">` — still no
@@ -59,7 +59,7 @@ This is the important one. You have never played it and never will.
 - Prefer exposing a new tunable over guessing at a constant, so the human can find the value
   by playing. Add it to the panel; do not silently hardcode.
 - Adding a slider means: a `<div class="row">` in `#panel`, plus a `register()` call. The
-  twenty-eight non-team sliders are wired by array index to `s0`–`s27` — append at the end so
+  thirty-two non-team sliders are wired by array index to `s0`–`s31` — append at the end so
   existing ids don't shift. The row can sit anywhere in the panel HTML.
 - Changing a default in `T` does **not** reach a device that has already saved settings —
   `applyLoaded` prefers the stored value. Whenever you change a default, say in your report

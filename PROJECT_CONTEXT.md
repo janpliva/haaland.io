@@ -5,7 +5,7 @@ Written for a session with no memory of this project. Everything below was read 
 
 ## 1. What this is
 
-A mobile-first top-down football prototype. One file, `index.html` (1138 lines), plain
+A mobile-first top-down football prototype. One file, `index.html` (1229 lines), plain
 canvas 2D, no build step, no npm, no framework. UI text is Czech (`<html lang="cs">`).
 
 It is a **feel test for one mechanic**, not a game. The question it exists to answer:
@@ -139,7 +139,42 @@ Consequence worth knowing: with `pressDist` at 900 a human who keeps the ball in
 is never challenged at all. Measured 0:0 over 120 s of standing still. Walk the ball forward
 and the block engages — the waiting defender is simply run into.
 
-**Exactly one player per team goes to a loose ball** — `nearestTo(list)`, in both `attack()`
+### Going to the ball: intercept, and commit to one man
+`interceptSolve(p)` predicts where the ball will be. Ball motion is constant deceleration
+`friction` along its velocity, so `s(t)` is analytic; the search steps `t` in 0.05 up to
+`tStop + 1.5` and returns the first point the player could reach, allowing him only
+`interceptEff` % of his top speed. If nothing is reachable it returns the resting point and a
+sort key of `1e6 + distance`, so unreachable players order behind reachable ones.
+
+`ball.chaser` holds **one committed player per team**, chosen by smallest intercept **time**,
+not smallest distance. It is recomputed only when possession changes — pass, steal, reception,
+kickoff — plus one extra recompute if a loose ball reverses by more than 90°, which is the
+wall-bounce case. `chaserOf()` revalidates lazily (team rebuild, keeper, lockout) rather than
+reselecting per frame. Everyone else keeps marking or running lanes.
+
+Measured: after a pass the committed receiver's distance to the ball fell strictly and without
+reversal — three episodes of 13, 25 and 36 consecutive samples. Over a loose-ball episode
+exactly one attacker closed on the ball (+181, +302, +101 units) while his three teammates all
+moved away (−12 to −1011). The defending side shows the committed chaser plus, sometimes, one
+marker closing too — that marker is shadowing the opponent who is himself going for the ball,
+which is marking working rather than the team converging.
+
+### AI pass power and plan commitment
+`speedForDistance(d) = clamp(sqrt(aiArrive² + 2·friction·d), passSpeed·passMin/100, passSpeed)`
+is applied to the teammate pass and the cross, using ball-to-aim-point distance. Shots on goal
+and keeper clearances stay at full `passSpeed` deliberately.
+
+Measured with the human running forward, 5000 frames per setting: `aiArrive` 50 → median 431
+(range 292–456), 220 → median 497 (380–512), 500 → median 635 (609–645), with the share of
+kicks hitting the full-power cap moving accordingly. Implied aim distances back-solved from
+the speeds land at 207–482 units, which are ordinary pass lengths.
+
+`driveCarrier` keeps a non-kick plan for `planHold` ms instead of re-deciding every 0.22–0.44 s.
+It breaks early only on pressure closer than `planBreak`, or when the plan's own `laneClear`
+check no longer holds — the solo plan carries `checkX/checkY/checkR` for exactly that. Kick
+plans still fire immediately.
+
+**Exactly one player per team goes to a loose ball** — `chaserOf(list)`, in both `attack()`
 and `defend()`. Everyone else keeps doing their job: the attacking side runs its lanes
 (around the ball's position when there is no carrier), the defending side marks. An earlier
 version sent the whole attacking team at any unowned ball, which made every pass collapse
@@ -428,6 +463,10 @@ All exposed in the gear panel and persisted. Defaults are as written in `T`
 | `wobbleNear` | 600 | 100–1500 (20) | units | Distance from the ball at which a marker's drift fades to zero. |
 | `runDepth` | 120 | 0–400 (5) | units | How far beyond the last opposing defender a band-0 run may target. |
 | `passLead` | 90 | 0–300 (5) | units | How far ahead of a moving teammate an AI pass is aimed, scaled by his speed. |
+| `interceptEff` | 90 | 50–100 (1) | % | Share of top speed a player assumes he can sustain when solving for an intercept. Below 100 because nobody turns instantly. |
+| `aiArrive` | 220 | 50–500 (10) | units/s | Speed an AI pass should still have on arrival. Drives the distance-scaled pass power. |
+| `planHold` | 500 | 100–1500 (50) | ms | How long an AI carrier keeps a non-kick plan before reconsidering. |
+| `planBreak` | 90 | 40–250 (5) | units | Opponent proximity that breaks the plan early. |
 
 Sliders `sB`/`sR` rebuild the teams; the other ten are wired by array index to `s0`–`s9`
 (`index.html:656`), so **adding a tunable to that array shifts every id after it** — append
