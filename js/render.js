@@ -1,7 +1,7 @@
 // Vykreslení. Čte stav, nic nemění.
 import { T, FIELD_W, PH, BALL_R, GOAL_DEPTH } from './config.js';
 import { S, E, ball, ctx, joyBase, touch } from './state.js';
-import { pickupOf, boxW, boxD } from './util.js';
+import { pickupOf, boxW, boxD, rollDist } from './util.js';
 
 export function X(v){ return v*S.scale; }
 
@@ -85,6 +85,19 @@ export function draw(){
     ctx.moveTo(X(p.x), X(p.y));
     ctx.lineTo(X(p.x + p.fx*PH*1.5), X(p.y + p.fy*PH*1.5));
     ctx.stroke();
+  }
+
+  // nachystaná přihrávka: čeká na dotek. Jinou barvou než nabíjení, ať je vidět, že je
+  // natažená a čeká — hráč se musí umět rozhodnout, jestli čekat, nebo pustit prst znovu.
+  if(ball.pending && ball.owner === S.ctrl){
+    var qp = ball.pending, qL = rollDist(qp.speed) * (T.aimLen/100);
+    ctx.strokeStyle = 'rgba(74,222,128,0.95)'; ctx.lineWidth = 3;
+    ctx.setLineDash([X(5), X(11)]);
+    ctx.beginPath();
+    ctx.moveTo(X(ball.x + qp.x*(BALL_R+6)), X(ball.y + qp.y*(BALL_R+6)));
+    ctx.lineTo(X(ball.x + qp.x*qL), X(ball.y + qp.y*qL));
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   // šipka míření

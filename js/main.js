@@ -1,7 +1,7 @@
 // Simulační krok, smyčka a start.
 import { T, FIELD_W, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
 import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField } from './state.js';
-import { foesOf, matesOf, pickupOf, carryZone, stealR, speedOf, inOwnBox,
+import { foesOf, pickupOf, stealR, speedOf, inOwnBox,
          steerFacing, doPass, pickChasers, rollDist } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
 import { attack } from './ai-off.js';
@@ -34,9 +34,9 @@ function step(dt){
       S.ctrl.x += S.ctrl.fx*sp*dt; S.ctrl.y += S.ctrl.fy*sp*dt;
       clampField(S.ctrl);
       // sf = podíl ze SKUTEČNĚ ušlé vzdálenosti, stejně jako v moveTo. U mantinelu clampField
-      // krok uřízne, ale zadaná rychlost zůstala — hráč stál a hlásil sf=1. Tím se nafukoval
-      // předkop (dribbleKick*sf), člen f*speed*sf ve vedení míče i míření přihrávek AI
-      // (passLead*sf), takže stojící spoluhráč u lajny dostával přihrávku o 90 jednotek vedle.
+      // krok uřízne, ale zadaná rychlost zůstala — hráč stál a hlásil sf=1. Tím se nafukovala
+      // síla předkopnutí (touchPush*sf) i míření přihrávek AI (passLead*sf), takže stojící
+      // spoluhráč u lajny dostával přihrávku o 90 jednotek vedle.
       var mvx = S.ctrl.x - x0, mvy = S.ctrl.y - y0, full = T.playerSpeed*dt;
       moveSF = full > 0 ? Math.min(1, Math.sqrt(mvx*mvx + mvy*mvy)/full) : 0;
 
@@ -45,9 +45,13 @@ function step(dt){
     }
   }
 
-  // prst zvednutý mimo práh → přihrávka
+  // prst zvednutý mimo práh → přihrávka se NACHYSTÁ a odehraje se až při nejbližším doteku.
+  // Míč je teď často kus před nohou, takže odehrát ho z místa, kde zrovna leží, nejde.
+  // Puštění znovu před odehráním tu předchozí přepíše.
   if(touch.fire){
-    if(ball.owner === S.ctrl) doPass(touch.fire.x, touch.fire.y, passSpeedFor(touch.fire.pw));
+    if(ball.owner === S.ctrl)
+      ball.pending = { x:touch.fire.x, y:touch.fire.y, speed:passSpeedFor(touch.fire.pw),
+                       until: S.time + T.passQueueMax/1000 };
     touch.fire = null;
   }
 
@@ -99,20 +103,20 @@ function step(dt){
       if(dist(fo[s1], ball) < stealR(fo[s1])){
         S.lockedPlayer = ball.owner; S.lockOut = STEAL_LOCK;
         ball.owner = fo[s1]; ball.vx = ball.vy = 0; S.lastTeam = fo[s1].team;
-        ball.gained = S.time; pickChasers();
+        ball.gained = S.time; ball.lastTouch = S.time; ball.pending = null; pickChasers();
         break;
       }
     }
   }
 
-  // --- zpracování: volný míč bere kdokoliv, míč mimo pole držitele jen spoluhráč ---
-  var ownD = ball.owner ? dist(ball.owner, ball) : 1e9;
-  if(!ball.owner || ownD > pickupOf(ball.owner)){
-    var cand = ball.owner ? matesOf(ball.owner) : E.all;
-    var taker = null, takeD = ownD;
-    for(var k=0;k<cand.length;k++){
-      var p = cand[k];
-      if(p === ball.owner) continue;
+  // --- zpracování: volný míč bere kdokoliv ---
+  // Držitel o míč VZDÁLENOSTÍ nepřijde: po předkopnutí si za ním běží a pořád je jeho.
+  // Sebrat mu ho může jen soupeř dotykem (výše). Bez toho by mu spoluhráč sebral každý
+  // předkop, protože míč je při doteku běžně dál než pickupOf.
+  if(!ball.owner){
+    var taker = null, takeD = 1e9;
+    for(var k=0;k<E.all.length;k++){
+      var p = E.all[k];
       if(p === S.lockedPlayer && S.lockOut > 0) continue;
       var pd = dist(p, ball);
       if(pd < pickupOf(p) && pd < takeD){ takeD = pd; taker = p; }
@@ -121,27 +125,29 @@ function step(dt){
     if(taker){
       var tv = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
       if(taker.role === 'gk' && tv > T.gkParrySpeed) parry(taker);   // moc rychlé na chycení
-      else { ball.owner = taker; ball.vx = ball.vy = 0; ownD = takeD; S.lastTeam = taker.team; ball.gained = S.time; pickChasers(); }
+      else { ball.owner = taker; ball.vx = ball.vy = 0; S.lastTeam = taker.team;
+             ball.gained = S.time; ball.lastTouch = S.time; ball.pending = null; pickChasers(); }
     }
   }
 
-  // --- vedení míče: v poli kolem hráče ho hráč vede a míč poslouchá i změnu směru;
-  //     mimo pole si míč letí sám a hráč nad ním nemá kontrolu ---
-  // vedení se testuje proti carryZone, ne proti pickupOf: pole se roztahuje s předkopem,
-  // aby míč, který si hráč sám posunul dopředu, nevypadl z jeho vedení
-  if(ball.owner && ownD <= carryZone(ball.owner)){
+  // --- doteky: hráč si míč předkopne a běží za ním, mezi doteky se míč kutálí sám ---
+  // Žádná pružina k noze: mezi doteky je míč obyčejná fyzika. Rytmus vzniká sám —
+  // kopnutý míč zpomaluje třením zpátky na rychlost hráče, ten ho dojede a kopne znovu.
+  if(ball.owner){
     var o = ball.owner, sf = o.sf || 0;
-    // čím rychleji běžím, tím dál míč patří — strop je vlastní carryZone, ať se míč nikdy
-    // nepředkopne mimo vedení. Platí pro oba týmy stejně.
-    var lead = CONTACT + Math.min(T.dribbleKick*sf, carryZone(o) - CONTACT - 2);
-    var tgx = o.x + o.fx*lead, tgy = o.y + o.fy*lead;
-    // korekce k noze má strop: bez něj dá chyba 79 jednotek při ballFollow 20
-    // rychlost 1580/s a míč hráči prosviští kolem nohy ven z pole
-    var cx = (tgx - ball.x)*T.ballFollow, cy = (tgy - ball.y)*T.ballFollow;
-    var cl = Math.sqrt(cx*cx + cy*cy), cap = speedOf(o)*1.5;   // stačí, aby dohnal sám sebe
-    if(cl > cap){ cx = cx/cl*cap; cy = cy/cl*cap; }
-    ball.vx = o.fx*speedOf(o)*sf + cx;
-    ball.vy = o.fy*speedOf(o)*sf + cy;
+    if(ball.pending && S.time > ball.pending.until) ball.pending = null;   // nachystaná přihrávka vypršela
+    // touchMin brání tomu, aby hráč rychlejší než vlastní míč kopal každý snímek
+    if(dist(o, ball) <= CONTACT + T.touchWindow && (S.time - ball.lastTouch) >= T.touchMin/1000){
+      ball.lastTouch = S.time;
+      if(ball.pending){
+        // dotek = okamžik odehrání. Míří se tam, kam mířil prst při puštění, ne kam ukazuje teď.
+        var pp = ball.pending; ball.pending = null;
+        doPass(pp.x, pp.y, pp.speed);
+      } else {
+        var v = speedOf(o)*sf + T.touchPush*sf;
+        ball.vx = o.fx*v; ball.vy = o.fy*v;
+      }
+    }
   }
 
   // --- kdo je ovládaný ---

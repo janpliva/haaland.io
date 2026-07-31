@@ -13,6 +13,8 @@ export const S = {
 };
 
 export const ball = { x:0, y:0, vx:0, vy:0, owner:null, gained:0,
+                      lastTouch:0,                 // kdy do míče držitel naposled kopl
+                      pending:null,                // nachystaná přihrávka, odehraje se až při doteku
                       chaser:{ b:null, r:null },   // kdo si za míčem jde; mění se jen při změně držení
                       chaseDir:{ x:0, y:0 } };     // směr míče při posledním výběru, na odhalení odrazu
 
@@ -79,6 +81,7 @@ export function reset(kickTeam){
   // rozehrává inkasující tým
   var starter = kickTeam === 'b' ? E.blue[0] : E.red[0];
   ball.vx = ball.vy = 0; ball.owner = starter; ball.gained = S.time;
+  ball.lastTouch = S.time; ball.pending = null;
   ball.x = starter.x + starter.fx*CONTACT;
   ball.y = starter.y + starter.fy*CONTACT;
   S.lastTeam = kickTeam;

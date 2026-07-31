@@ -12,10 +12,16 @@ export function attackY(team){ return team === 'b' ? 0 : S.FIELD_H; }   // brank
 export function pickupOf(p){ return p.role === 'gk' ? CONTACT : (p.team === 'b' ? T.pickupMate : T.foePickup); }
 // na jakou vzdálenost hráč odebere míč soupeři
 export function stealR(p){ return PH + T.tackleR; }
-// Dosah, do kterého si hráč VEDE míč. Roste s předkopem, protože míč, který si hráč sám
-// posunul dopředu, mu nesmí vypadnout z vedení. Používá se JEN na test vedení a strop leadu —
-// zpracování přihrávky, sebrání volného míče i odebrání dál jedou na pickupOf/stealR.
-export function carryZone(p){ return pickupOf(p) + T.dribbleKick*(p.sf || 0); }
+// Jak daleko se míč po předkopnutí vzdálí, když hráč běží dál za ním. Odvozeno, ne hádané:
+// po doteku má míč rychlost sf*(speed+touchPush), hráč sf*speed, takže relativní rychlost je
+// sf*touchPush a relativní zpomalení je friction (hráč jede konstantně, míč brzdí). Než míč
+// klesne zpátky na rychlost hráče, ujede mu (sf*touchPush)²/(2*friction), nejvíc při sf=1.
+// K tomu okno, ve kterém dotek vůbec nastane. Drží, dokud hráč běží dál — když se zastaví
+// nebo se otočí pryč, míč se kutálí dál a mez neplatí; proto se držení podle vzdálenosti
+// neztrácí vůbec (viz zpracování v main.js).
+export function carryZone(p){
+  return pickupOf(p) + T.touchWindow + T.touchPush*T.touchPush/(2*Math.max(1, T.friction));
+}
 export function speedOf(p){ return p === S.ctrl ? T.playerSpeed : (p.team === 'b' ? T.mateSpeed : T.foeSpeed); }
 // vápno — roste se šířkou branky, takže se ladí jedním posuvníkem
 export function boxW(){ return Math.min(FIELD_W*0.70, T.goalW*2.9); }

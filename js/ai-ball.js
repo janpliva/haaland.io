@@ -93,6 +93,9 @@ export function decide(p){
 
 export function driveCarrier(p, dt){
   p.think -= dt;
+  // kop je nachystaný a čeká na dotek — do té doby si hráč běží za míčem, ať se ho dotkne.
+  // Stejné pravidlo jako u člověka: odehrává se v okamžiku doteku, ne hned při rozhodnutí.
+  if(ball.pending){ moveTo(p, ball.x, ball.y, speedOf(p), dt); return; }
   // plán se drží planHold ms; přeruší ho jen tlak soupeře nebo zaniklý koridor,
   // jinak by se cíl každých pár desetin sekundy přehodil o stovky jednotek
   var brk = false;
@@ -101,9 +104,13 @@ export function driveCarrier(p, dt){
     else if(p.plan.checkR && !laneClear(p, p.plan.checkX, p.plan.checkY, p.plan.checkR)) brk = true;
   }
   if(!p.plan || p.think <= 0 || brk){ p.plan = decide(p); p.think = T.planHold/1000; }
-  if(p.plan.kick){ doPass(p.plan.x, p.plan.y, p.plan.speed); p.plan = null; return; }
+  if(p.plan.kick){
+    ball.pending = { x:p.plan.x, y:p.plan.y, speed:p.plan.speed, until: S.time + T.passQueueMax/1000 };
+    p.plan = null;
+    moveTo(p, ball.x, ball.y, speedOf(p), dt);
+    return;
+  }
   // míč vypadl z pole = nejdřív si ho doběhni, teprve pak zase vpřed
   if(dist(p, ball) > pickupOf(p)){ moveTo(p, ball.x, ball.y, speedOf(p), dt); return; }
-  // plnou rychlostí: předkop si hlídá strop leadu ve step(), zpomalovat kvůli němu netřeba
   moveTo(p, p.plan.x, p.plan.y, speedOf(p), dt);
 }

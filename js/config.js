@@ -1,7 +1,7 @@
 // Konstanty a laditelné hodnoty. Tohle je jediné místo, kde se mění výchozí hodnoty —
 // panel i DEFAULTS se generují z TUNABLES, takže nový posuvník = jeden řádek tady.
 
-export const FIELD_W = 700;
+export const FIELD_W = 1200;
 export const PH = 15;                  // půlka strany hráče
 export const BALL_R = 10;
 export const CONTACT = PH + BALL_R;    // vzdálenost středů, kdy se hráč míče dotýká
@@ -13,8 +13,8 @@ export function dirOf(team){ return team === 'b' ? -1 : 1; }   // kterým směre
 
 export const TUNABLES = [
   // Kolik hráčů v poli; brankář se do počtu nepočítá. Změna rozehraje nový zápas.
-  { key:'teamSize',      def:3,    min:1,   max:6,    step:1,   label:'Hráčů v mém týmu',            group:'Týmy', rebuild:true },
-  { key:'foeSize',       def:3,    min:1,   max:6,    step:1,   label:'Hráčů v týmu soupeře',        group:'Týmy', rebuild:true },
+  { key:'teamSize',      def:5,    min:1,   max:6,    step:1,   label:'Hráčů v mém týmu',            group:'Týmy', rebuild:true },
+  { key:'foeSize',       def:5,    min:1,   max:6,    step:1,   label:'Hráčů v týmu soupeře',        group:'Týmy', rebuild:true },
 
   // Maximální rychlosti. Ovládaný hráč má vlastní, AI zvlášť pro každý tým.
   { key:'playerSpeed',   def:200,  min:120, max:320,  step:5,   label:'Rychlost ovládaného hráče',   group:'Pohyb' },
@@ -25,8 +25,11 @@ export const TUNABLES = [
   { key:'pickupMate',    def:55,   min:16,  max:90,   step:1,   label:'Dosah zpracování — můj tým',  group:'Míč' },
   { key:'foePickup',     def:55,   min:16,  max:90,   step:1,   label:'Dosah zpracování — soupeř',   group:'Míč' },
   { key:'tackleR',       def:10,   min:9,   max:60,   step:1,   label:'Dosah odebrání',              group:'Míč' },
-  { key:'dribbleKick',   def:20,   min:0,   max:80,   step:1,   label:'Předkop při sprintu',         group:'Míč' },
-  { key:'ballFollow',    def:20,   min:2,   max:30,   step:1,   label:'Přilnavost míče',             group:'Míč' },
+  // Driblink je posloupnost DOTEKŮ: hráč si míč předkopne a doběhne ho. Rytmus vychází
+  // z aritmetiky, ne z časovače — kopnutý míč zpomaluje třením zpátky na rychlost hráče.
+  { key:'touchPush',     def:140,  min:0,   max:400,  step:10,  label:'Síla předkopnutí',            group:'Míč' },
+  { key:'touchMin',      def:180,  min:60,  max:500,  step:10,  label:'Nejkratší interval mezi doteky (ms)', group:'Míč' },
+  { key:'touchWindow',   def:8,    min:0,   max:40,   step:1,   label:'Okno doteku',                 group:'Míč' },
   // s míčem se natočení stáčí omezenou rychlostí — v běhu pomalu, takže zatáčka je oblouk.
   // Bez míče se hráč otáčí okamžitě jako dřív.
   { key:'turnRateWalk',  def:900,  min:120, max:1200, step:20,  label:'Otáčení s míčem v klidu (°/s)', group:'Míč' },
@@ -39,6 +42,8 @@ export const TUNABLES = [
   { key:'passMin',       def:40,   min:10,  max:90,   step:5,   label:'Nejslabší přihrávka (%)',     group:'Přihrávka' },
   { key:'aimLen',        def:33,   min:5,   max:100,  step:1,   label:'Délka linky míření (%)',      group:'Přihrávka' },
   { key:'aiArrive',      def:220,  min:50,  max:500,  step:10,  label:'Dojezdová rychlost přihrávky AI', group:'Přihrávka' },
+  // přihrávka se odehraje až při nejbližším doteku; po tomhle čase se nachystaná zahodí
+  { key:'passQueueMax',  def:700,  min:200, max:2000, step:50,  label:'Nejdelší čekání na přihrávku (ms)', group:'Přihrávka' },
   { key:'passLead',      def:90,   min:0,   max:300,  step:5,   label:'Přihrávka před hráče',        group:'Přihrávka' },
 
   // Velikost joysticku a kde začíná nabíjení přihrávky.
