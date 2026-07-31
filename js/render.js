@@ -63,11 +63,6 @@ export function draw(){
       ctx.strokeStyle = p.team === 'b' ? 'rgba(147,197,253,0.32)' : 'rgba(252,165,165,0.30)';
       ctx.lineWidth = 1.5; ctx.stroke();
     }
-    if(isCtrl){
-      ctx.beginPath();
-      ctx.arc(X(p.x), X(p.y), X(PH*1.9), 0, Math.PI*2);
-      ctx.fillStyle = 'rgba(255,255,255,0.13)'; ctx.fill();
-    }
     ctx.fillStyle = p.role === 'gk' ? (p.team === 'b' ? '#a3e635' : '#f59e0b')
                   : (p.team === 'b' ? (isCtrl ? '#60a5fa' : '#2563eb') : '#ef4444');
     var hw = p.role === 'gk' ? PH*1.6 : PH;   // brankář je širší než vysoký
@@ -75,6 +70,14 @@ export function draw(){
     if(p === ball.owner){          // kdo má míč
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2;
       ctx.strokeRect(X(p.x-hw), X(p.y-PH), X(hw*2), X(PH*2));
+    }
+    // ovládaný hráč: kroužek, ne výplň, a menší než odsazení míče (24.83) — vyplněný kotouč
+    // o poloměru PH*1.9 míč pohltil a hráč s míčem vypadal jako jedna skvrna.
+    // Kreslí se až po těle, jinak by ho čtverec překryl.
+    if(isCtrl){
+      ctx.beginPath();
+      ctx.arc(X(p.x), X(p.y), X(PH*1.2), 0, Math.PI*2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
     }
     // směr
     ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;

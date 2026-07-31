@@ -10,7 +10,7 @@ import { driveCarrier } from './ai-ball.js';
 import { playKeeper, parry } from './keeper.js';
 import { goal, showScore } from './match.js';
 import { draw } from './render.js';
-import { buildPanel, loadStore } from './ui.js';
+import { buildPanel, clearStore } from './ui.js';
 
 function step(dt){
   S.time += dt;
@@ -27,9 +27,16 @@ function step(dt){
       var nx = dx/d, ny = dy/d;
       moveSF = Math.min(d/joyR, 1);
       var sp = T.playerSpeed * moveSF;
+      var x0 = S.ctrl.x, y0 = S.ctrl.y;
       S.ctrl.x += nx*sp*dt; S.ctrl.y += ny*sp*dt;
       S.ctrl.fx = nx; S.ctrl.fy = ny;
       clampField(S.ctrl);
+      // sf = podíl ze SKUTEČNĚ ušlé vzdálenosti, stejně jako v moveTo. U mantinelu clampField
+      // krok uřízne, ale zadaná rychlost zůstala — hráč stál a hlásil sf=1. Tím se nafukoval
+      // předkop (dribbleKick*sf), člen f*speed*sf ve vedení míče i míření přihrávek AI
+      // (passLead*sf), takže stojící spoluhráč u lajny dostával přihrávku o 90 jednotek vedle.
+      var mvx = S.ctrl.x - x0, mvy = S.ctrl.y - y0, full = T.playerSpeed*dt;
+      moveSF = full > 0 ? Math.min(1, Math.sqrt(mvx*mvx + mvy*mvy)/full) : 0;
 
       // mimo práh je přihrávka nabitá a míří tam, kde je prst teď
       if(d > thresh && ball.owner === S.ctrl){ aiming = true; aimX = nx; aimY = ny; aimPw = passPower(d); }
@@ -120,7 +127,10 @@ function step(dt){
   //     mimo pole si míč letí sám a hráč nad ním nemá kontrolu ---
   if(ball.owner && ownD <= pickupOf(ball.owner)){
     var o = ball.owner, sf = o.sf || 0;
-    var lead = CONTACT + T.dribbleKick*sf;      // čím rychleji běžím, tím dál míč patří
+    // čím rychleji běžím, tím dál míč patří — ale předkop nesmí míč vystrčit z vlastního
+    // pole, takže strop je pickup − CONTACT − 2. Platí pro oba týmy stejně: AI si to dřív
+    // hlídala zpomalením (carrySpeed), ovládaný hráč neměl obdobu a míč ztrácel.
+    var lead = CONTACT + Math.min(T.dribbleKick*sf, pickupOf(o) - CONTACT - 2);
     var tgx = o.x + o.fx*lead, tgy = o.y + o.fy*lead;
     // korekce k noze má strop: bez něj dá chyba 79 jednotek při ballFollow 20
     // rychlost 1580/s a míč hráči prosviští kolem nohy ven z pole
@@ -171,7 +181,7 @@ window.addEventListener('resize', resize);
 resize();
 buildTeams();
 buildPanel();
-loadStore();
+clearStore();      // T se bere z config.js; případný starý uložený blob jen zahodíme
 
 reset(); showScore();
 requestAnimationFrame(frame);

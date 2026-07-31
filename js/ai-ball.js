@@ -1,5 +1,5 @@
 // Hráč s míčem: střílí / centruje / jde si sám / přihrává / dribluje, a drží plán.
-import { T, FIELD_W, CONTACT, SETTLE, dirOf } from './config.js';
+import { T, FIELD_W, SETTLE, dirOf } from './config.js';
 import { S, ball, dist } from './state.js';
 import { foesOf, matesOf, attackY, speedOf, pickupOf, boxD, inBox, moveTo,
          laneClear, nearestFoeDist, kickPlan, speedForDistance, doPass } from './util.js';
@@ -91,13 +91,6 @@ export function decide(p){
            y: Math.max(30, Math.min(S.FIELD_H-30, ty)) };
 }
 
-// rychlost, při které míč ještě zůstane v poli hráče: lead = CONTACT + dribbleKick*sf
-export function carrySpeed(p){
-  if(T.dribbleKick <= 0) return 1;
-  var room = pickupOf(p) - CONTACT - 2;         // kolik místa zbývá na předkop
-  return Math.max(0.15, Math.min(1, room / T.dribbleKick));
-}
-
 export function driveCarrier(p, dt){
   p.think -= dt;
   // plán se drží planHold ms; přeruší ho jen tlak soupeře nebo zaniklý koridor,
@@ -111,5 +104,6 @@ export function driveCarrier(p, dt){
   if(p.plan.kick){ doPass(p.plan.x, p.plan.y, p.plan.speed); p.plan = null; return; }
   // míč vypadl z pole = nejdřív si ho doběhni, teprve pak zase vpřed
   if(dist(p, ball) > pickupOf(p)){ moveTo(p, ball.x, ball.y, speedOf(p), dt); return; }
-  moveTo(p, p.plan.x, p.plan.y, speedOf(p)*carrySpeed(p), dt);
+  // plnou rychlostí: předkop si hlídá strop leadu ve step(), zpomalovat kvůli němu netřeba
+  moveTo(p, p.plan.x, p.plan.y, speedOf(p), dt);
 }

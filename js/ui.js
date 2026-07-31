@@ -1,54 +1,19 @@
-// Panel nastavení se generuje z TUNABLES a ukládá se do úložiště.
+// Panel nastavení se generuje z TUNABLES. Nastavení se NEUKLÁDÁ: T se při každém startu
+// bere z config.js, takže hra vždycky běží na tom, co je ve zdrojáku. Posuvníky mění T
+// jen po dobu session.
 import { T, DEFAULTS, TUNABLES } from './config.js';
 import { S, buildTeams, reset } from './state.js';
 import { newMatch } from './match.js';
 
-const STORE_KEY = 'fbproto_tuning_v1';
+const OLD_STORE_KEY = 'fbproto_tuning_v1';   // jen kvůli úklidu po staré verzi
 const controls = [];
-let saveTimer = null;
 
-function flashSaved(){
-  var el = document.getElementById('saved');
-  el.classList.add('on');
-  setTimeout(function(){ el.classList.remove('on'); }, 900);
+// zbytek po dřívějším ukládání — ať nikomu nezůstane v prohlížeči viset mrtvý blob
+export function clearStore(){
+  try { window.localStorage.removeItem(OLD_STORE_KEY); } catch(e){}
 }
-function writeStore(data){
-  try {
-    if(window.storage && window.storage.set){
-      window.storage.set(STORE_KEY, data).then(flashSaved).catch(function(){});
-      return;
-    }
-  } catch(e){}
-  try { window.localStorage.setItem(STORE_KEY, data); flashSaved(); } catch(e){}
-}
-function queueSave(){
-  if(saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(function(){ writeStore(JSON.stringify(T)); }, 500);
-}
-export function syncSliders(){
+function syncSliders(){
   controls.forEach(function(c){ c.s.value = T[c.key]; c.l.textContent = T[c.key]; });
-}
-function applyLoaded(obj){
-  if(!obj) return;
-  Object.keys(DEFAULTS).forEach(function(k){ if(typeof obj[k] === 'number') T[k] = obj[k]; });
-  syncSliders(); buildTeams(); reset();
-}
-function localLoad(){
-  try {
-    var v = window.localStorage.getItem(STORE_KEY);
-    if(v) applyLoaded(JSON.parse(v));
-  } catch(e){}
-}
-export function loadStore(){
-  try {
-    if(window.storage && window.storage.get){
-      window.storage.get(STORE_KEY)
-        .then(function(r){ if(r && r.value) applyLoaded(JSON.parse(r.value)); })
-        .catch(function(){ localLoad(); });
-      return;
-    }
-  } catch(e){}
-  localLoad();
 }
 
 // jeden řádek panelu podle jedné položky TUNABLES
@@ -66,7 +31,6 @@ function register(def){
   s.addEventListener('input', function(){
     T[def.key] = +s.value; b.textContent = s.value;
     if(def.rebuild){ buildTeams(); newMatch(); }   // jiný počet hráčů = nový zápas
-    queueSave();
   });
   return row;
 }
@@ -91,8 +55,9 @@ export function buildPanel(){
   document.getElementById('reset').addEventListener('click', function(){
     reset(); S.running = true; S.deadTime = 0;    // jen pozice, skóre zůstává
   });
+  // „výchozí hodnoty" = to, co je v TUNABLES v config.js; DEFAULTS je jejich kopie
   document.getElementById('defaults').addEventListener('click', function(){
     Object.keys(DEFAULTS).forEach(function(k){ T[k] = DEFAULTS[k]; });
-    syncSliders(); buildTeams(); newMatch(); queueSave();
+    syncSliders(); buildTeams(); newMatch();
   });
 }

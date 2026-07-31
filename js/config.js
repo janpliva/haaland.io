@@ -22,7 +22,7 @@ export const TUNABLES = [
   { key:'foeSpeed',      def:200,  min:100, max:320,  step:5,   label:'Rychlost soupeřů (AI)',       group:'Pohyb' },
 
   // Jak se míč chová u nohy: kdo ho kdy má, jak daleko se předkopává a jak tvrdě poslouchá.
-  { key:'pickupMate',    def:30,   min:16,  max:90,   step:1,   label:'Dosah zpracování — můj tým',  group:'Míč' },
+  { key:'pickupMate',    def:55,   min:16,  max:90,   step:1,   label:'Dosah zpracování — můj tým',  group:'Míč' },
   { key:'foePickup',     def:55,   min:16,  max:90,   step:1,   label:'Dosah zpracování — soupeř',   group:'Míč' },
   { key:'tackleR',       def:10,   min:9,   max:60,   step:1,   label:'Dosah odebrání',              group:'Míč' },
   { key:'dribbleKick',   def:0,    min:0,   max:80,   step:1,   label:'Předkop při sprintu',         group:'Míč' },
