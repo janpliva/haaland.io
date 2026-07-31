@@ -13,8 +13,8 @@ export function dirOf(team){ return team === 'b' ? -1 : 1; }   // kterým směre
 
 export const TUNABLES = [
   // Kolik hráčů v poli; brankář se do počtu nepočítá. Změna rozehraje nový zápas.
-  { key:'teamSize',      def:4,    min:1,   max:6,    step:1,   label:'Hráčů v mém týmu',            group:'Týmy', rebuild:true },
-  { key:'foeSize',       def:4,    min:1,   max:6,    step:1,   label:'Hráčů v týmu soupeře',        group:'Týmy', rebuild:true },
+  { key:'teamSize',      def:5,    min:1,   max:6,    step:1,   label:'Hráčů v mém týmu',            group:'Týmy', rebuild:true },
+  { key:'foeSize',       def:5,    min:1,   max:6,    step:1,   label:'Hráčů v týmu soupeře',        group:'Týmy', rebuild:true },
 
   // Maximální rychlosti. Ovládaný hráč má vlastní, AI zvlášť pro každý tým.
   { key:'playerSpeed',   def:200,  min:120, max:320,  step:5,   label:'Rychlost ovládaného hráče',   group:'Pohyb' },
