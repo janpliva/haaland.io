@@ -23,15 +23,29 @@ python3 -m http.server 8000
 
 ## File layout
 
-- **`index.html` is at 1323 lines — past the ~1000 threshold. The split into plain
-  `<script>` files is now due and should happen before the next feature.** Suggested cut:
-  tuning + storage, entities + physics, AI, render, input, main.
-- After that, split into plain `<script>` files loaded with `<script src="...">` — still no
-  modules, no bundler, no imports.
+Split into ES modules, no bundler and no build step — the browser loads them directly.
+
+```
+index.html    DOM shell only          styles.css    all CSS
+js/config.js  constants, TUNABLES, T, DEFAULTS
+js/state.js   S, ball, E, touch, joyBase, resize, mk, buildTeams, reset
+js/util.js    geometry, who-is-who, intercept, doPass
+js/ai-off.js  assignRoles, mateTarget, attack     js/ai-def.js  defend
+js/ai-ball.js decide, driveCarrier                js/keeper.js  playKeeper, parry, keeperPlan
+js/match.js   score, goal, overlay               js/input.js   joystick
+js/render.js  draw                               js/ui.js      panel + storage
+js/main.js    step, frame, boot
+```
+
+- **Imports must stay one-way**: config → state → util → ai/keeper → match → input →
+  render/ui → main. No cycles. If a cycle appears, move the shared piece down a layer.
+- ES module imports are read-only bindings. Anything reassigned from more than one place
+  lives as a **property** of `S`, `E`, `ball` or `T` — never reassign those objects
+  themselves.
 
 ## Tuning defaults are off-limits
 
-- The values in `T` (`index.html:133`) are hand-tuned by playing on a phone. **Never change
+- The values in `TUNABLES` (`js/config.js`) are hand-tuned by playing on a phone. **Never change
   a default without being asked**, including "while I was in there" adjustments.
 - Slider min/max/step are also tuning. Same rule.
 - `DEFAULTS` is a deep copy of `T` at load, and the "Vrátit výchozí hodnoty" button restores
@@ -39,8 +53,8 @@ python3 -m http.server 8000
 
 ## Do not remove the storage layer
 
-- `writeStore`/`loadStore` try `window.storage` first and fall back to `localStorage`
-  (`index.html:583-620`). Keep both paths and the try/catch around them, even though
+- `writeStore`/`loadStore` in `js/ui.js` try `window.storage` first and fall back to
+  `localStorage`. Keep both paths and the try/catch around them, even though
   `window.storage` is undefined on GitHub Pages.
 - Keep `applyLoaded`'s filter (only numeric keys present in `DEFAULTS`) — it is what stops a
   stale saved payload from injecting fields.
@@ -58,9 +72,9 @@ This is the important one. You have never played it and never will.
   imagined feel.
 - Prefer exposing a new tunable over guessing at a constant, so the human can find the value
   by playing. Add it to the panel; do not silently hardcode.
-- Adding a slider means: a `<div class="row">` in `#panel`, plus a `register()` call. The
-  forty non-team sliders are wired by array index to `s0`–`s39` — append at the end so
-  existing ids don't shift. The row can sit anywhere in the panel HTML.
+- **Adding a tunable is one line** in the `TUNABLES` list in `js/config.js`. The panel rows,
+  `T`'s initial value and `DEFAULTS` are all generated from it, and the group headings come
+  from the `group` field. There is no positional id mapping to get wrong any more.
 - Changing a default in `T` does **not** reach a device that has already saved settings —
   `applyLoaded` prefers the stored value. Whenever you change a default, say in your report
   that the human has to press "Vrátit výchozí hodnoty" on the phone to see it.

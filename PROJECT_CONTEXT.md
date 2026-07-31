@@ -5,8 +5,8 @@ Written for a session with no memory of this project. Everything below was read 
 
 ## 1. What this is
 
-A mobile-first top-down football prototype. One file, `index.html` (1323 lines), plain
-canvas 2D, no build step, no npm, no framework. UI text is Czech (`<html lang="cs">`).
+A mobile-first top-down football prototype. Plain canvas 2D, ES modules loaded straight by
+the browser — no build step, no npm, no framework. UI text is Czech (`<html lang="cs">`).
 
 It is a **feel test for one mechanic**, not a game. The question it exists to answer:
 
@@ -360,7 +360,20 @@ one safe one. (This rationale is inferred from the code — the lane penalty
 
 ## 4. Architecture
 
-Single IIFE, `"use strict"`, ~535 lines of JS inside `index.html`. No modules, no classes.
+`index.html` (41) is a DOM shell, `styles.css` (73) the CSS, and the JS lives in `js/`:
+`config` (79), `state` (88), `util` (159), `ai-off` (121), `ai-def` (105), `ai-ball` (115),
+`keeper` (75), `match` (46), `input` (62), `render` (141), `ui` (98), `main` (177).
+
+Imports run one way only: config → state → util → ai/keeper → match → input → render/ui →
+main. Because module bindings are read-only, every value that is reassigned from more than
+one place lives as a property of a shared object: `S` (game state), `E` (entity arrays),
+`ball`, `touch`, `joyBase`, `T`. Those objects are never reassigned, only mutated.
+
+Two places bend the file layout to keep imports acyclic. `dist`/`clampField` sit in
+`state.js` rather than `util.js` because `reset()` needs them; and `state.js` exposes a
+`hooks` object that `util.js` fills with `pickChasers`, because `reset()` has to call it
+while `util` is the layer above. `kickPlan` moved to `util.js` so `keeper.js` and
+`ai-ball.js` can both use it without importing each other.
 
 ```
 resize()          canvas sizing + field scale        index.html:147
