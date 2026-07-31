@@ -1,8 +1,8 @@
 // Simulační krok, smyčka a start.
 import { T, FIELD_W, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
 import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField } from './state.js';
-import { foesOf, matesOf, pickupOf, stealR, speedOf, inOwnBox,
-         doPass, pickChasers, rollDist } from './util.js';
+import { foesOf, matesOf, pickupOf, carryZone, stealR, speedOf, inOwnBox,
+         steerFacing, doPass, pickChasers, rollDist } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
 import { attack } from './ai-off.js';
 import { defend } from './ai-def.js';
@@ -28,8 +28,10 @@ function step(dt){
       moveSF = Math.min(d/joyR, 1);
       var sp = T.playerSpeed * moveSF;
       var x0 = S.ctrl.x, y0 = S.ctrl.y;
-      S.ctrl.x += nx*sp*dt; S.ctrl.y += ny*sp*dt;
-      S.ctrl.fx = nx; S.ctrl.fy = ny;
+      // natočení se stáčí ke sticku — bez míče okamžitě, s míčem omezenou rychlostí.
+      // Běží se po natočení, ne po sticku, takže zatáčka s míčem je oblouk.
+      steerFacing(S.ctrl, nx, ny, dt);
+      S.ctrl.x += S.ctrl.fx*sp*dt; S.ctrl.y += S.ctrl.fy*sp*dt;
       clampField(S.ctrl);
       // sf = podíl ze SKUTEČNĚ ušlé vzdálenosti, stejně jako v moveTo. U mantinelu clampField
       // krok uřízne, ale zadaná rychlost zůstala — hráč stál a hlásil sf=1. Tím se nafukoval
@@ -125,12 +127,13 @@ function step(dt){
 
   // --- vedení míče: v poli kolem hráče ho hráč vede a míč poslouchá i změnu směru;
   //     mimo pole si míč letí sám a hráč nad ním nemá kontrolu ---
-  if(ball.owner && ownD <= pickupOf(ball.owner)){
+  // vedení se testuje proti carryZone, ne proti pickupOf: pole se roztahuje s předkopem,
+  // aby míč, který si hráč sám posunul dopředu, nevypadl z jeho vedení
+  if(ball.owner && ownD <= carryZone(ball.owner)){
     var o = ball.owner, sf = o.sf || 0;
-    // čím rychleji běžím, tím dál míč patří — ale předkop nesmí míč vystrčit z vlastního
-    // pole, takže strop je pickup − CONTACT − 2. Platí pro oba týmy stejně: AI si to dřív
-    // hlídala zpomalením (carrySpeed), ovládaný hráč neměl obdobu a míč ztrácel.
-    var lead = CONTACT + Math.min(T.dribbleKick*sf, pickupOf(o) - CONTACT - 2);
+    // čím rychleji běžím, tím dál míč patří — strop je vlastní carryZone, ať se míč nikdy
+    // nepředkopne mimo vedení. Platí pro oba týmy stejně.
+    var lead = CONTACT + Math.min(T.dribbleKick*sf, carryZone(o) - CONTACT - 2);
     var tgx = o.x + o.fx*lead, tgy = o.y + o.fy*lead;
     // korekce k noze má strop: bez něj dá chyba 79 jednotek při ballFollow 20
     // rychlost 1580/s a míč hráči prosviští kolem nohy ven z pole

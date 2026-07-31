@@ -12,6 +12,10 @@ export function attackY(team){ return team === 'b' ? 0 : S.FIELD_H; }   // brank
 export function pickupOf(p){ return p.role === 'gk' ? CONTACT : (p.team === 'b' ? T.pickupMate : T.foePickup); }
 // na jakou vzdálenost hráč odebere míč soupeři
 export function stealR(p){ return PH + T.tackleR; }
+// Dosah, do kterého si hráč VEDE míč. Roste s předkopem, protože míč, který si hráč sám
+// posunul dopředu, mu nesmí vypadnout z vedení. Používá se JEN na test vedení a strop leadu —
+// zpracování přihrávky, sebrání volného míče i odebrání dál jedou na pickupOf/stealR.
+export function carryZone(p){ return pickupOf(p) + T.dribbleKick*(p.sf || 0); }
 export function speedOf(p){ return p === S.ctrl ? T.playerSpeed : (p.team === 'b' ? T.mateSpeed : T.foeSpeed); }
 // vápno — roste se šířkou branky, takže se ladí jedním posuvníkem
 export function boxW(){ return Math.min(FIELD_W*0.70, T.goalW*2.9); }
@@ -35,6 +39,26 @@ export function inOwnBox(p){
 }
 
 // ---- pohyb ----
+// Jak rychle se hráč s míčem smí otáčet: v klidu skoro okamžitě, v běhu pomalu.
+// Zpomalení tím samo vrací obratnost — žádný další mechanismus na to netřeba.
+export function maxTurnRate(p){
+  var sf = Math.max(0, Math.min(1, p.sf || 0));
+  return T.turnRateWalk + (T.turnRateSprint - T.turnRateWalk)*sf;   // °/s
+}
+// Natočení se stáčí k požadovanému směru. BEZ míče okamžitě, jako dřív; s míčem nejvýš
+// maxTurnRate za sekundu, takže zatáčka opisuje oblouk místo piruety na místě.
+// Vstup nikdy neblokuje: každý snímek se natočení posune k aktuálnímu sticku, nic se „nedohrává".
+export function steerFacing(p, nx, ny, dt){
+  if(ball.owner !== p){ p.fx = nx; p.fy = ny; return; }
+  var cur = Math.atan2(p.fy, p.fx), diff = Math.atan2(ny, nx) - cur;
+  while(diff >  Math.PI) diff -= 2*Math.PI;
+  while(diff < -Math.PI) diff += 2*Math.PI;
+  var lim = maxTurnRate(p)*Math.PI/180*dt;
+  if(diff >  lim) diff =  lim;
+  if(diff < -lim) diff = -lim;
+  var a = cur + diff;
+  p.fx = Math.cos(a); p.fy = Math.sin(a);
+}
 export function moveTo(p, tx, ty, sp, dt){
   var dx = tx-p.x, dy = ty-p.y, d = Math.sqrt(dx*dx+dy*dy);
   if(d < 2){ p.sf = 0; return; }
@@ -43,8 +67,10 @@ export function moveTo(p, tx, ty, sp, dt){
   // hráč hlásil sf=1 a vedení míče by počítalo s rychlostí, kterou nemá
   var full = speedOf(p)*dt;
   p.sf = full > 0 ? Math.min(1, step/full) : 0;
-  p.x += dx/d*step; p.y += dy/d*step;
-  if(d > 6){ p.fx = dx/d; p.fy = dy/d; }
+  if(d > 6) steerFacing(p, dx/d, dy/d, dt);
+  // s míčem se běží po natočení (proto ten oblouk), bez míče rovnou na cíl jako dřív
+  if(ball.owner === p){ p.x += p.fx*step; p.y += p.fy*step; }
+  else { p.x += dx/d*step; p.y += dy/d*step; }
   clampField(p);
 }
 

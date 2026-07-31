@@ -1,7 +1,7 @@
 // Konstanty a laditelné hodnoty. Tohle je jediné místo, kde se mění výchozí hodnoty —
 // panel i DEFAULTS se generují z TUNABLES, takže nový posuvník = jeden řádek tady.
 
-export const FIELD_W = 1200;
+export const FIELD_W = 700;
 export const PH = 15;                  // půlka strany hráče
 export const BALL_R = 10;
 export const CONTACT = PH + BALL_R;    // vzdálenost středů, kdy se hráč míče dotýká
@@ -13,8 +13,8 @@ export function dirOf(team){ return team === 'b' ? -1 : 1; }   // kterým směre
 
 export const TUNABLES = [
   // Kolik hráčů v poli; brankář se do počtu nepočítá. Změna rozehraje nový zápas.
-  { key:'teamSize',      def:5,    min:1,   max:6,    step:1,   label:'Hráčů v mém týmu',            group:'Týmy', rebuild:true },
-  { key:'foeSize',       def:5,    min:1,   max:6,    step:1,   label:'Hráčů v týmu soupeře',        group:'Týmy', rebuild:true },
+  { key:'teamSize',      def:3,    min:1,   max:6,    step:1,   label:'Hráčů v mém týmu',            group:'Týmy', rebuild:true },
+  { key:'foeSize',       def:3,    min:1,   max:6,    step:1,   label:'Hráčů v týmu soupeře',        group:'Týmy', rebuild:true },
 
   // Maximální rychlosti. Ovládaný hráč má vlastní, AI zvlášť pro každý tým.
   { key:'playerSpeed',   def:200,  min:120, max:320,  step:5,   label:'Rychlost ovládaného hráče',   group:'Pohyb' },
@@ -25,8 +25,12 @@ export const TUNABLES = [
   { key:'pickupMate',    def:55,   min:16,  max:90,   step:1,   label:'Dosah zpracování — můj tým',  group:'Míč' },
   { key:'foePickup',     def:55,   min:16,  max:90,   step:1,   label:'Dosah zpracování — soupeř',   group:'Míč' },
   { key:'tackleR',       def:10,   min:9,   max:60,   step:1,   label:'Dosah odebrání',              group:'Míč' },
-  { key:'dribbleKick',   def:0,    min:0,   max:80,   step:1,   label:'Předkop při sprintu',         group:'Míč' },
+  { key:'dribbleKick',   def:20,   min:0,   max:80,   step:1,   label:'Předkop při sprintu',         group:'Míč' },
   { key:'ballFollow',    def:20,   min:2,   max:30,   step:1,   label:'Přilnavost míče',             group:'Míč' },
+  // s míčem se natočení stáčí omezenou rychlostí — v běhu pomalu, takže zatáčka je oblouk.
+  // Bez míče se hráč otáčí okamžitě jako dřív.
+  { key:'turnRateWalk',  def:900,  min:120, max:1200, step:20,  label:'Otáčení s míčem v klidu (°/s)', group:'Míč' },
+  { key:'turnRateSprint',def:220,  min:60,  max:900,  step:10,  label:'Otáčení s míčem v běhu (°/s)',  group:'Míč' },
   { key:'friction',      def:200,  min:80,  max:700,  step:10,  label:'Tření míče',                  group:'Míč' },
 
   // Síla přihrávky se odvíjí od toho, jak daleko za prahem zvedneš prst.
@@ -64,7 +68,7 @@ export const TUNABLES = [
   // Brankář chytá tělem; tohle řídí jen postavení, reakci, zákrok a rozehrávku.
   { key:'gkDepth',       def:55,   min:0,   max:160,  step:5,   label:'Vysunutí brankáře',           group:'Brankář' },
   { key:'gkReaction',    def:180,  min:0,   max:500,  step:10,  label:'Reakce brankáře (ms)',        group:'Brankář' },
-  { key:'gkError',       def:45,   min:0,   max:200,  step:5,   label:'Nepřesnost brankáře',         group:'Brankář' },
+  { key:'gkError',       def:25,   min:0,   max:200,  step:5,   label:'Nepřesnost brankáře',         group:'Brankář' },
   { key:'gkDiveSpeed',   def:160,  min:100, max:300,  step:5,   label:'Rychlost zákroku (%)',        group:'Brankář' },
   { key:'gkParrySpeed',  def:520,  min:200, max:1000, step:20,  label:'Rychlost odrazu místo chycení', group:'Brankář' },
   { key:'gkParryKeep',   def:45,   min:10,  max:90,   step:5,   label:'Síla odrazu (%)',             group:'Brankář' },
