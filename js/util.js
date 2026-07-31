@@ -65,19 +65,45 @@ export function steerFacing(p, nx, ny, dt){
   var a = cur + diff;
   p.fx = Math.cos(a); p.fy = Math.sin(a);
 }
+// Vstup se VŽDY nabufferuje. Držitel míče se ale mezi doteky řídí zamčeným vektorem
+// z posledního doteku — sprint zavazuje, chůze nechává obratnost. Bez míče se nic nezamyká.
+// chaseSteer říká, kolik vlivu si vstup přesto podrží (0 = plný zámek, 100 = jako dřív).
+export function lockedInput(p, nx, ny, sf, live){
+  p.bx = nx; p.by = ny; p.bsf = sf;
+  if(ball.owner !== p || !p.lockOn) return { x:nx, y:ny, sf:sf };
+  var k = T.chaseSteer/100;
+  var mx = p.lx*(1-k) + nx*k, my = p.ly*(1-k) + ny*k;
+  var m = Math.sqrt(mx*mx + my*my);
+  if(m < 1e-6){ mx = p.lx; my = p.ly; m = 1; }
+  var s = p.lsf*(1-k) + sf*k;
+  // Brzdit smí okamžitě, zabočit ne: nižší výchylka, než je zamčená, platí hned, směr drží zámek.
+  // Bez toho hráč nedokáže před obráncem zastavit. Zvednutý prst ale brzda NENÍ (live=false),
+  // jinak by se doběh za předkopem nedokončil a nachystaná přihrávka by vypršela.
+  if(live && sf < s) s = sf;
+  return { x:mx/m, y:my/m, sf:s };
+}
+// zámek se zapíná při doteku a bere si směr i rychlost z bufferu
+export function lockFrom(p){ p.lx = p.bx; p.ly = p.by; p.lsf = p.bsf; p.lockOn = true; }
+export function releaseLock(p){ if(p) p.lockOn = false; }
+
 export function moveTo(p, tx, ty, sp, dt){
   var dx = tx-p.x, dy = ty-p.y, d = Math.sqrt(dx*dx+dy*dy);
-  if(d < 2){ p.sf = 0; return; }
-  var step = Math.min(sp*dt, d);
+  var held = (ball.owner === p && p.lockOn);
+  if(d < 2 && !held){ p.sf = 0; return; }        // zamčený běžec doběhne i přes cíl
   // sf = podíl z MAXIMÁLNÍ rychlosti hráče, ne z té zrovna zadané — jinak by zpomalený
-  // hráč hlásil sf=1 a vedení míče by počítalo s rychlostí, kterou nemá
+  // hráč hlásil sf=1 a předkop by počítal s rychlostí, kterou nemá
   var full = speedOf(p)*dt;
-  p.sf = full > 0 ? Math.min(1, step/full) : 0;
-  if(d > 6) steerFacing(p, dx/d, dy/d, dt);
+  var reqSF = full > 0 ? Math.min(1, Math.min(sp*dt, d)/full) : 0;
+  var mv = lockedInput(p, d > 0.001 ? dx/d : p.fx, d > 0.001 ? dy/d : p.fy, reqSF, true);
+  var step = mv.sf*full, x0 = p.x, y0 = p.y;
+  if(d > 6 || held) steerFacing(p, mv.x, mv.y, dt);
   // s míčem se běží po natočení (proto ten oblouk), bez míče rovnou na cíl jako dřív
   if(ball.owner === p){ p.x += p.fx*step; p.y += p.fy*step; }
-  else { p.x += dx/d*step; p.y += dy/d*step; }
+  else { p.x += mv.x*step; p.y += mv.y*step; }
   clampField(p);
+  // sf podle SKUTEČNĚ ušlé vzdálenosti — u mantinelu clampField krok uřízne
+  var ax = p.x-x0, ay = p.y-y0;
+  p.sf = full > 0 ? Math.min(1, Math.sqrt(ax*ax + ay*ay)/full) : 0;
 }
 
 // vzdálenost bodu od úsečky — test, jestli je přihrávka/střela průchozí
@@ -181,7 +207,7 @@ export function doPass(dx, dy, speed){
   var d = Math.sqrt(dx*dx+dy*dy); if(d < .001) return;
   var v = speed || T.passSpeed;            // AI zatím kope pořád naplno
   var carrier = ball.owner;
-  ball.owner = null;
+  ball.owner = null; releaseLock(carrier);
   // míč se odehrává z místa, kde reálně leží — nikam se neteleportuje
   ball.vx = dx/d*v; ball.vy = dy/d*v;
   S.lockedPlayer = carrier; S.lockOut = 0.32; S.lastTeam = carrier.team;

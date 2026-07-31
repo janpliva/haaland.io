@@ -1,8 +1,8 @@
 // Simulační krok, smyčka a start.
 import { T, FIELD_W, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
 import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField } from './state.js';
-import { foesOf, pickupOf, stealR, speedOf, inOwnBox,
-         steerFacing, doPass, pickChasers, rollDist } from './util.js';
+import { foesOf, pickupOf, stealR, speedOf, inOwnBox, steerFacing,
+         lockedInput, lockFrom, releaseLock, doPass, pickChasers, rollDist } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
 import { attack } from './ai-off.js';
 import { defend } from './ai-def.js';
@@ -20,29 +20,35 @@ function step(dt){
   var joyR = T.joyR, thresh = joyR * (T.passThresh/100);
   var aimX = 0, aimY = 0, aiming = false, moveSF = 0, aimPw = 0;
 
+  // pojistka: když se dotek do touchLockMax nekoná (odraz, mantinel, nedostižný míč),
+  // zámek povolí a hráč zase řídí normálně, dokud se míče nedotkne
+  if(ball.owner && ball.owner.lockOn && (S.time - ball.lastTouch) > T.touchLockMax/1000)
+    releaseLock(ball.owner);
+
+  var sx = S.ctrl.fx, sy = S.ctrl.fy, stickSF = 0, stickD = 0;
   if(touch.active){
     var dx = touch.x - joyBase.x, dy = touch.y - joyBase.y;
-    var d = Math.sqrt(dx*dx+dy*dy);
-    if(d > 0.001){
-      var nx = dx/d, ny = dy/d;
-      moveSF = Math.min(d/joyR, 1);
-      var sp = T.playerSpeed * moveSF;
-      var x0 = S.ctrl.x, y0 = S.ctrl.y;
-      // natočení se stáčí ke sticku — bez míče okamžitě, s míčem omezenou rychlostí.
-      // Běží se po natočení, ne po sticku, takže zatáčka s míčem je oblouk.
-      steerFacing(S.ctrl, nx, ny, dt);
-      S.ctrl.x += S.ctrl.fx*sp*dt; S.ctrl.y += S.ctrl.fy*sp*dt;
-      clampField(S.ctrl);
-      // sf = podíl ze SKUTEČNĚ ušlé vzdálenosti, stejně jako v moveTo. U mantinelu clampField
-      // krok uřízne, ale zadaná rychlost zůstala — hráč stál a hlásil sf=1. Tím se nafukovala
-      // síla předkopnutí (touchPush*sf) i míření přihrávek AI (passLead*sf), takže stojící
-      // spoluhráč u lajny dostával přihrávku o 90 jednotek vedle.
-      var mvx = S.ctrl.x - x0, mvy = S.ctrl.y - y0, full = T.playerSpeed*dt;
-      moveSF = full > 0 ? Math.min(1, Math.sqrt(mvx*mvx + mvy*mvy)/full) : 0;
-
+    stickD = Math.sqrt(dx*dx+dy*dy);
+    if(stickD > 0.001){
+      sx = dx/stickD; sy = dy/stickD; stickSF = Math.min(stickD/joyR, 1);
       // mimo práh je přihrávka nabitá a míří tam, kde je prst teď
-      if(d > thresh && ball.owner === S.ctrl){ aiming = true; aimX = nx; aimY = ny; aimPw = passPower(d); }
+      if(stickD > thresh && ball.owner === S.ctrl){ aiming = true; aimX = sx; aimY = sy; aimPw = passPower(stickD); }
     }
+  }
+  // vstup se nabufferuje; s míčem se mezi doteky běží po zamčeném vektoru, ne po sticku —
+  // proto zvednutý prst hráče nezastaví a doběh za vlastním předkopem se dokončí
+  var mv = lockedInput(S.ctrl, sx, sy, stickSF, touch.active);
+  if(mv.sf > 0){
+    var sp = T.playerSpeed * mv.sf, x0 = S.ctrl.x, y0 = S.ctrl.y;
+    // natočení se stáčí k cíli — bez míče okamžitě, s míčem omezenou rychlostí.
+    // Běží se po natočení, ne po sticku, takže zatáčka s míčem je oblouk.
+    steerFacing(S.ctrl, mv.x, mv.y, dt);
+    S.ctrl.x += S.ctrl.fx*sp*dt; S.ctrl.y += S.ctrl.fy*sp*dt;
+    clampField(S.ctrl);
+    // sf = podíl ze SKUTEČNĚ ušlé vzdálenosti. U mantinelu clampField krok uřízne, ale zadaná
+    // rychlost zůstala — hráč stál a hlásil sf=1, čímž se nafukoval předkop i míření AI.
+    var mvx = S.ctrl.x - x0, mvy = S.ctrl.y - y0, full = T.playerSpeed*dt;
+    moveSF = full > 0 ? Math.min(1, Math.sqrt(mvx*mvx + mvy*mvy)/full) : 0;
   }
 
   // prst zvednutý mimo práh → přihrávka se NACHYSTÁ a odehraje se až při nejbližším doteku.
@@ -102,6 +108,7 @@ function step(dt){
       if(fo[s1] === S.lockedPlayer && S.lockOut > 0) continue;
       if(dist(fo[s1], ball) < stealR(fo[s1])){
         S.lockedPlayer = ball.owner; S.lockOut = STEAL_LOCK;
+        releaseLock(ball.owner); releaseLock(fo[s1]);   // změna držení zámek okamžitě pouští
         ball.owner = fo[s1]; ball.vx = ball.vy = 0; S.lastTeam = fo[s1].team;
         ball.gained = S.time; ball.lastTouch = S.time; ball.pending = null; pickChasers();
         break;
@@ -125,7 +132,7 @@ function step(dt){
     if(taker){
       var tv = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
       if(taker.role === 'gk' && tv > T.gkParrySpeed) parry(taker);   // moc rychlé na chycení
-      else { ball.owner = taker; ball.vx = ball.vy = 0; S.lastTeam = taker.team;
+      else { ball.owner = taker; ball.vx = ball.vy = 0; S.lastTeam = taker.team; releaseLock(taker);
              ball.gained = S.time; ball.lastTouch = S.time; ball.pending = null; pickChasers(); }
     }
   }
@@ -139,6 +146,8 @@ function step(dt){
     // touchMin brání tomu, aby hráč rychlejší než vlastní míč kopal každý snímek
     if(dist(o, ball) <= CONTACT + T.touchWindow && (S.time - ball.lastTouch) >= T.touchMin/1000){
       ball.lastTouch = S.time;
+      // dotek je jediný okamžik, kdy se vstup projeví na pohybu: nový zámek z bufferu
+      lockFrom(o);
       if(ball.pending){
         // dotek = okamžik odehrání. Míří se tam, kam mířil prst při puštění, ne kam ukazuje teď.
         var pp = ball.pending; ball.pending = null;
