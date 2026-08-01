@@ -28,13 +28,16 @@ export const TUNABLES = [
   // Driblink je SCRIPTOVANÝ cyklus doteku, ne fyzika: míč je po celý cyklus přilepený na
   // vzorec ball = hráč + touchDir * maxLead*sin(pi*progress). Vyjede dopředu a vrátí se
   // přesně na nulu — a ta nula JE dotek. Míč proto nemůže hráči utéct.
-  { key:'touchLead',       def:45,  min:0,   max:150, step:5,   label:'Délka předkopu',              group:'Míč' },
-  { key:'touchCycleWalk',  def:140, min:60,  max:400, step:10,  label:'Cyklus doteku — chůze (ms)',  group:'Míč' },
-  { key:'touchCycleSprint',def:280, min:100, max:600, step:10,  label:'Cyklus doteku — sprint (ms)', group:'Míč' },
+  { key:'touchLead',       def:10,  min:0,   max:150, step:5,   label:'Délka předkopu',              group:'Míč' },
+  { key:'touchCycleWalk',  def:600, min:60,  max:600, step:10,  label:'Cyklus doteku — chůze (ms)',  group:'Míč' },
+  { key:'touchCycleSprint',def:600, min:100, max:600, step:10,  label:'Cyklus doteku — sprint (ms)', group:'Míč' },
   // Mezi doteky stick směr ani rychlost nemění — to je ta zavázanost. 0 = plný zámek,
   // 100 = stick působí průběžně.
   { key:'chaseSteer',      def:0,   min:0,   max:100, step:5,   label:'Ovládání během doběhu (%)',   group:'Míč' },
-  { key:'friction',      def:200,  min:80,  max:700,  step:10,  label:'Tření míče',                  group:'Míč' },
+  // Dosah zpracování míč nezastavuje — jen určí, kdo si po něm cukne. Tohle je rychlost
+  // toho cuknutí, v procentech běžné rychlosti hráče.
+  { key:'lungeSpeed',      def:200, min:100, max:500, step:10,  label:'Rychlost cuknutí pro zpracování (%)', group:'Míč' },
+  { key:'friction',      def:700,  min:80,  max:700,  step:10,  label:'Tření míče',                  group:'Míč' },
 
   // Síla přihrávky se odvíjí od toho, jak daleko za prahem zvedneš prst.
   { key:'passSpeed',     def:660,  min:300, max:1100, step:20,  label:'Síla přihrávky',              group:'Přihrávka' },

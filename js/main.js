@@ -1,8 +1,8 @@
 // Simulační krok, smyčka a start.
 import { T, FIELD_W, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
 import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField } from './state.js';
-import { foesOf, matesOf, pickupOf, stealR, inOwnBox, bufferInput,
-         leadAt, startCycle, holdBall, detachBall, doPass, pickChasers, rollDist } from './util.js';
+import { foesOf, stealR, inOwnBox, bufferInput, ballOffset, updateClaim, lungeStep,
+         startCycle, holdBall, detachBall, doPass, pickChasers, rollDist } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
 import { attack } from './ai-off.js';
 import { defend } from './ai-def.js';
@@ -33,7 +33,8 @@ function step(dt){
   // vstup se nabufferuje; v cyklu doteku se běží po touchDir, ne po sticku — proto zvednutý
   // prst hráče uprostřed cyklu nezastaví a dotek (a s ním nachystaná přihrávka) vždycky přijde
   var mv = bufferInput(S.ctrl, sx, sy, stickSF);
-  if(mv.sf > 0){
+  // když si zrovna sám cukl po volném míči, řídí ho zpracování — stick se jen bufferuje
+  if(mv.sf > 0 && !(ball.claim === S.ctrl && !ball.owner)){
     var sp = T.playerSpeed * mv.sf, x0 = S.ctrl.x, y0 = S.ctrl.y;
     S.ctrl.fx = mv.x; S.ctrl.fy = mv.y;
     S.ctrl.x += mv.x*sp*dt; S.ctrl.y += mv.y*sp*dt;
@@ -66,6 +67,12 @@ function step(dt){
   if(attTeam === 'b'){ attack(E.blue, carrier, dt); defend(E.red, dt); }
   else               { attack(E.red, carrier, dt);  defend(E.blue, dt); }
 
+  // --- nárok na volný míč a cuknutí po něm ---
+  // Kdo má míč na dráze skrz svůj dosah zpracování a stihne ho, ten si ho narokuje a vrhne
+  // se na místo, KDE MÍČ BUDE. Jeho běžný pohyb je po tu dobu vypnutý (viz moveTo).
+  updateClaim();
+  lungeStep(dt);
+
   // --- míč ---
   // V cyklu doteku se pozice POČÍTÁ, ne simuluje: míč visí na hráči a utéct mu nemůže.
   // Mimo cyklus (volný míč, přihrávka v letu, zpracování) je to pořád obyčejná fyzika.
@@ -73,8 +80,9 @@ function step(dt){
   if(ball.attached && ball.owner){
     var ow = ball.owner;
     if(!ball.held) ball.cycleT += dt;
-    var lead = ball.held ? CONTACT : leadAt(ball.cycleDur > 0 ? Math.min(1, ball.cycleT/ball.cycleDur) : 1);
-    ball.x = ow.x + ball.tdx*lead; ball.y = ow.y + ball.tdy*lead;
+    ball.eT += dt;
+    var off = ballOffset(ow);
+    ball.x = ow.x + off.x; ball.y = ow.y + off.y;
     ball.vx = ball.vy = 0;
     // gól platí i s míčem u nohy; mimo branku se míč jen přidrží na hřišti
     inMouth = Math.abs(ball.x - FIELD_W/2) < T.goalW/2;
@@ -126,26 +134,22 @@ function step(dt){
     }
   }
 
-  // --- zpracování: volný míč bere kdokoliv, míč mimo pole držitele jen spoluhráč ---
-  // Držený míč je v cyklu přilepený, takže tudy nikdy neprojde; tohle řeší jen míč, který
-  // se zrovna nedribluje — přihrávku v letu, odražený míč, rozehru.
-  var ownD = ball.owner ? dist(ball.owner, ball) : 1e9;
-  if(!ball.owner || (!ball.attached && ownD > pickupOf(ball.owner))){
-    var cand = ball.owner ? matesOf(ball.owner) : E.all;
-    var taker = null, takeD = ownD;
-    for(var k=0;k<cand.length;k++){
-      var p = cand[k];
-      if(p === ball.owner) continue;
+  // --- převzetí: JEDINÉ místo, kde se volný míč zastaví, je dotyk tělem ---
+  // Dosah zpracování už míč nebrzdí ani nestáčí — jen určuje, kdo si ho narokuje (updateClaim
+  // výš). Míč si letí dál přesně tak, jak letěl, dokud ho někdo fyzicky nezastihne.
+  if(!ball.owner){
+    var taker = null, takeD = 1e9;
+    for(var k=0;k<E.all.length;k++){
+      var p = E.all[k];
       if(p === S.lockedPlayer && S.lockOut > 0) continue;
       var pd = dist(p, ball);
-      if(pd < pickupOf(p) && pd < takeD){ takeD = pd; taker = p; }
+      if(pd <= CONTACT && pd < takeD){ takeD = pd; taker = p; }
     }
-    // zpracování míč zastaví
     if(taker){
       var tv = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
       if(taker.role === 'gk' && tv > T.gkParrySpeed) parry(taker);   // moc rychlé na chycení
-      else { detachBall(); ball.owner = taker; ball.vx = ball.vy = 0; S.lastTeam = taker.team;
-             ball.gained = S.time; ball.pending = null; pickChasers(); }
+      else { ball.owner = taker; ball.vx = ball.vy = 0; S.lastTeam = taker.team;
+             ball.claim = null; ball.gained = S.time; ball.pending = null; pickChasers(); }
     }
   }
 

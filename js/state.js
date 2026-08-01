@@ -17,6 +17,8 @@ export const ball = { x:0, y:0, vx:0, vy:0, owner:null, gained:0,
                       attached:false, held:false,  // held = držitel stojí, míč čeká u nohy
                       tdx:0, tdy:-1,               // směr předkopu, vzorkovaný při doteku
                       csf:0, cycleT:0, cycleDur:0, maxLead:0,
+                      ex:0, ey:0, eT:0,            // rozjezd přechodu, ať míč nepodskočí
+                      claim:null, claimX:0, claimY:0,   // kdo si volný míč narokoval a kam se vrhá
                       pending:null,                // nachystaná přihrávka, odehraje se až při doteku
                       chaser:{ b:null, r:null },   // kdo si za míčem jde; mění se jen při změně držení
                       chaseDir:{ x:0, y:0 } };     // směr míče při posledním výběru, na odhalení odrazu
@@ -90,6 +92,7 @@ export function reset(kickTeam){
   ball.pending = null; ball.attached = false; ball.held = false;
   ball.cycleT = 0; ball.cycleDur = 0; ball.maxLead = 0;
   ball.tdx = starter.fx; ball.tdy = starter.fy; ball.csf = 0;
+  ball.ex = 0; ball.ey = 0; ball.eT = 99; ball.claim = null;
   ball.x = starter.x + starter.fx*CONTACT;
   ball.y = starter.y + starter.fy*CONTACT;
   S.lastTeam = kickTeam;
