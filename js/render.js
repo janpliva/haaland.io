@@ -87,23 +87,38 @@ export function draw(){
     ctx.stroke();
   }
 
+  // Kdo míč podle nároku zpracuje jako první: prstenec, ať je vidět, komu se to nabíjí.
+  // Kreslí se, kdykoliv jde jednodotyková přihrávka zahrát — tedy i před natažením prstu,
+  // jinak by se mířilo naslepo.
+  if(S.recv){
+    ctx.beginPath();
+    ctx.arc(X(S.recv.x), X(S.recv.y), X(PH*1.7), 0, Math.PI*2);
+    ctx.strokeStyle = ball.pending ? 'rgba(74,222,128,0.95)' : 'rgba(250,204,21,0.8)';
+    ctx.lineWidth = 3; ctx.setLineDash([X(7), X(7)]); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Obě linky vycházejí z HRÁČE, ne z míče: ukazují směr, kterým se odehraje, a u letícího
+  // míče je hráč jediný smysluplný počátek. Přihrávka sama pořád odlétá z místa míče, takže
+  // se linka a skutečný start o kus liší — je to ukazatel směru, ne trajektorie.
+  var af = S.aimFrom;
+
   // nachystaná přihrávka: čeká na dotek. Jinou barvou než nabíjení, ať je vidět, že je
   // natažená a čeká — hráč se musí umět rozhodnout, jestli čekat, nebo pustit prst znovu.
-  if(ball.pending && ball.owner === S.ctrl){
+  if(ball.pending && af){
     var qp = ball.pending, qL = rollDist(qp.speed) * (T.aimLen/100);
     ctx.strokeStyle = 'rgba(74,222,128,0.95)'; ctx.lineWidth = 3;
     ctx.setLineDash([X(5), X(11)]);
     ctx.beginPath();
-    ctx.moveTo(X(ball.x + qp.x*(BALL_R+6)), X(ball.y + qp.y*(BALL_R+6)));
-    ctx.lineTo(X(ball.x + qp.x*qL), X(ball.y + qp.y*qL));
+    ctx.moveTo(X(af.x + qp.x*(BALL_R+6)), X(af.y + qp.y*(BALL_R+6)));
+    ctx.lineTo(X(af.x + qp.x*qL), X(af.y + qp.y*qL));
     ctx.stroke();
     ctx.setLineDash([]);
   }
 
   // šipka míření
-  if(S.drawAim && ball.owner){
-    // linka vychází z míče, protože odtud se přihrávka reálně odehrává
-    var ax = ball.x, ay = ball.y, L = S.drawAim.len;
+  if(S.drawAim && af){
+    var ax = af.x, ay = af.y, L = S.drawAim.len;
     ctx.strokeStyle = 'rgba(250,204,21,0.85)'; ctx.lineWidth = 3;
     ctx.setLineDash([X(9), X(9)]);
     ctx.beginPath();
@@ -127,7 +142,7 @@ export function draw(){
   if(touch.active){
     tdx = touch.x - joyBase.x; tdy = touch.y - joyBase.y;
     td = Math.sqrt(tdx*tdx+tdy*tdy);
-    charged = td > th && ball.owner === S.ctrl;   // přihrávka nabitá, čeká na zvednutí prstu
+    charged = td > th && !!S.aimFrom;             // přihrávka nabitá, čeká na zvednutí prstu
   }
   ctx.beginPath(); ctx.arc(joyBase.x, joyBase.y, jr, 0, Math.PI*2);
   ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fill();

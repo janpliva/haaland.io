@@ -402,11 +402,38 @@ who is going to collect it.
 Because the ball is usually away from the foot, a pass cannot fire from where it lies.
 Releasing the joystick past the threshold stores direction and power on `ball.pending`;
 the next contact plays it, from the ball's position, in the **stored** direction — not where
-the stick points at that later moment. Releasing again replaces it, a change of possession
-clears it, and it expires after `passQueueMax`. The armed pass draws as a green dotted line
-from the ball so it is visible from release until it fires. AI kicks go through the same
-queue. Lifting the thumb does not stop the carrier mid-cycle: he is on the automatic chase,
-so the contact always arrives.
+the stick points at that later moment. Releasing again replaces it, an **opponent** taking
+the ball clears it, and it expires `passQueueMax` after possession. AI kicks go through the
+same queue. Lifting the thumb does not stop the carrier mid-cycle: he is on the automatic
+chase, so the contact always arrives.
+
+### One-tap: arming a pass while the ball is in flight
+A pass can also be armed while nobody owns the ball. The claim mechanism already knows who
+will reach it, so `S.recv` is `ball.claim` whenever the ball is loose and the claimer is on
+the human's team; `S.aimFrom` is the carrier when we have the ball and `S.recv` otherwise.
+No claimed team-mate means no line and no arming — including a dead ball nobody is inside
+pickup range of, which is unclaimed by construction.
+
+The armed pass survives a reception **by our own team**, and the contact block runs in the
+same frame as the loose-ball takeover, so it plays first time — measured at 0 frames between
+contact and the ball leaving. Nothing extra fires it; it is the existing queue, no longer
+cleared on a friendly take. If the thumb is still down there is no `pending` yet, so the
+receiver simply controls the ball and the pass fires later on release as usual.
+
+`until: 0` means the expiry clock has not started. An armed pass must not die in flight —
+measured flights run to 4.27 s and 11.8 % exceed `passQueueMax` — so the clock starts when
+our team gains possession, not at release.
+
+Both aim lines are drawn **from the player**, not from the ball: the carrier while dribbling,
+the anticipated receiver while the ball is in flight, who also gets a dashed ring. The pass
+still physically leaves from the ball, which during a dribble is up to `peakGap` ahead of the
+body — median 33.6, max 36.7 units, **11.5 css px** on a 375 px viewport. The line is a
+direction indicator, not the trajectory origin.
+
+Aiming a one-tap issues **no movement**. While the ball is loose the stick steers the
+controlled player live, so without this every aim sprinted him off at full speed: 115 units
+(36 css px) over a half-second aim. It costs no control, because the movement band
+(0–`joyR`) and the aim band (past `passThresh`) do not overlap — 70 px versus 85 px.
 
 ### Lane-based teammate runs
 `assignRoles()` sorts non-carrier teammates by current x and gives each
@@ -533,8 +560,9 @@ tap's `touchend` is ignored because `touch.id` is still null, so it cannot fire 
 Immediate mode, redrawn every frame, painter's order: pitch fill → stripes → boundary /
 halfway / centre circle → goals and boxes → for each player (pickup-radius ring, body square,
 white outline if he owns the ball, white ring at `PH*1.2` if he is the controlled player,
-facing tick) → armed-pass line (green, dotted, from the ball) → charge aim line (yellow,
-dashed) → ball and its `tackleR` ring → joystick (inner ring, dashed threshold ring, knob
+facing tick) → anticipated-receiver ring (dashed, yellow while charging, green once armed) →
+armed-pass line (green, dotted, from `S.aimFrom`) → charge aim line (yellow, dashed, from
+`S.aimFrom`) → ball and its `tackleR` ring → joystick (inner ring, dashed threshold ring, knob
 clamped to the threshold radius).
 
 The controlled player's marker is a **stroked ring, not a filled disc**. It used to be a
@@ -578,7 +606,7 @@ these values. They are hand-tuned by playing — do not change one without being
 | `passMin` | 40 | 10–90 (5) | % of `passSpeed` | Weakest pass, played when the thumb is released right on the ring. |
 | `aimLen` | 33 | 5–100 (1) | % of roll distance | Length of the aiming line as a fraction of how far the ball would really go. |
 | `aiArrive` | 220 | 50–500 (10) | units/s | Speed an AI pass should still have on arrival. Drives distance-scaled pass power. |
-| `passQueueMax` | 700 | 200–2000 (50) | ms | How long an armed pass waits for a contact before being dropped. With the automatic chase a contact always arrives well inside this, so it effectively never expires. |
+| `passQueueMax` | 700 | 200–2000 (50) | ms | How long an armed pass waits for a contact before being dropped, counted **from possession**, not from release. With the automatic chase a contact always arrives well inside this, so it effectively never expires. |
 | `passLead` | 90 | 0–300 (5) | units | How far ahead of a moving teammate an AI pass is aimed, scaled by his `sf`. |
 | `joyR` | 70 | 40–100 (2) | css px | Inner ring radius. Also the distance at which you hit full speed. |
 | `passThresh` | 122 | 100–180 (2) | % of `joyR` | Outer ring radius — the charge boundary. ~85.4 css px at the default. |
@@ -686,6 +714,10 @@ Known rough edges (behaviour, not necessarily bugs):
   reception kills the pass rather than running on with it.
 - **A pass leaves from wherever the ball is**, not from the player, and it fires at the next
   contact rather than on release — so the origin and the moment both move around a little.
+  The aim line is drawn from the player regardless, and is off by up to 11.5 css px.
+- **A one-tap fires for whichever team-mate gets there**, not only the claimed one. The claim
+  picks who the line is drawn from; the armed direction and power are absolute on the pitch,
+  so a different receiver plays the same ball the same way.
 - **Input latency is one touch cycle.** A direction change only reaches the carrier at the
   next contact: measured median 217 ms at half stick and 333 ms at full, `2*touchPush*m/friction`
   by construction. Same for the queued pass. That is the mechanic, but it is the number to

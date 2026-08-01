@@ -1,6 +1,6 @@
 // Skóre, góly, konec zápasu a úvodní obrazovka.
 import { T } from './config.js';
-import { S, reset } from './state.js';
+import { S, ball, reset } from './state.js';
 
 const ovEl = document.getElementById('start'),
       ovT = document.getElementById('ovT'),
@@ -20,6 +20,9 @@ export function showScore(){
 export function goal(team){
   if(team === 'b') S.scoreB++; else S.scoreR++;
   showScore();
+  // gól = konec akce: nachystaná přihrávka i linka zmizí hned, ne až po výkopu. Bez toho by
+  // se přes celou přestávku kreslilo míření z hráče, který už na nic nečeká.
+  ball.pending = null; S.drawAim = null; S.aimFrom = null; S.recv = null;
   S.running = false; S.deadTime = 1.4;
   S.kickNext = team === 'b' ? 'r' : 'b';   // rozehrává inkasující
   if(S.scoreB >= T.targetGoals || S.scoreR >= T.targetGoals){

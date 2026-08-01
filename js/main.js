@@ -29,6 +29,13 @@ function step(dt){
   var joyR = T.joyR, thresh = joyR * (T.passThresh/100);
   var aimX = 0, aimY = 0, aiming = false, moveSF = 0, aimPw = 0;
 
+  // Kdo teď smí nabíjet: buď mám míč, nebo je míč volný a narokoval si ho někdo z mého týmu —
+  // ten ho zpracuje jako první, takže se přihrávka nachystá JEMU a odehraje se z první.
+  // Nárok počítá updateClaim() výš, takže tady stačí přečíst ball.claim. Když je míč volný a
+  // nikdo z našich ho nemá narokovaný (nikdo, nebo soupeř), nenabíjí se a nic se nekreslí.
+  S.recv = (!ball.owner && ball.claim && ball.claim.team === S.ctrl.team) ? ball.claim : null;
+  S.aimFrom = ball.owner === S.ctrl ? S.ctrl : S.recv;
+
   var sx = S.ctrl.fx, sy = S.ctrl.fy, stickSF = 0, stickD = 0;
   if(touch.active){
     var dx = touch.x - joyBase.x, dy = touch.y - joyBase.y;
@@ -36,9 +43,18 @@ function step(dt){
     if(stickD > 0.001){
       sx = dx/stickD; sy = dy/stickD; stickSF = Math.min(stickD/joyR, 1);
       // mimo práh je přihrávka nabitá a míří tam, kde je prst teď
-      if(stickD > thresh && ball.owner === S.ctrl){ aiming = true; aimX = sx; aimY = sy; aimPw = passPower(stickD); }
+      if(stickD > thresh && S.aimFrom){ aiming = true; aimX = sx; aimY = sy; aimPw = passPower(stickD); }
     }
   }
+  // Míření na volný míč je MÍŘENÍ, ne povel k běhu, a nesmí hráčem hýbat. Při driblinku to
+  // vychází samo (držitele veze carryChase, stick se jen bufferuje), ale u volného míče řídí
+  // stick ovládaného hráče živě — bez tohohle by ho každé zamíření rozeběhlo směrem míření
+  // plnou rychlostí: naměřeno 115 jednotek za půlvteřinové zamíření, 36 css px na 375px
+  // displeji. Míření tak nic nestojí a obě situace se chovají stejně.
+  // Nestojí to ani žádné ovládání: běhová zóna je 0–joyR, míření začíná až za passThresh
+  // (70 vs 85 px), takže sprintovat za volným míčem jde pořád.
+  if(aiming && !ball.owner){ sx = S.ctrl.fx; sy = S.ctrl.fy; stickSF = 0; }
+
   // vstup se nabufferuje; v cyklu doteku se běží po touchDir, ne po sticku — proto zvednutý
   // prst hráče uprostřed cyklu nezastaví a dotek (a s ním nachystaná přihrávka) vždycky přijde
   var mv = bufferInput(S.ctrl, sx, sy, stickSF);
@@ -59,10 +75,13 @@ function step(dt){
   // prst zvednutý mimo práh → přihrávka se NACHYSTÁ a odehraje se až při nejbližším doteku.
   // Míč je teď často kus před nohou, takže odehrát ho z místa, kde zrovna leží, nejde.
   // Puštění znovu před odehráním tu předchozí přepíše.
+  // until = 0 znamená „hodiny ještě neběží": nachystaná přihrávka na letící míč nesmí vypršet,
+  // dokud je míč volný a náš — let může trvat déle než passQueueMax. Odpočet začíná až
+  // získáním míče (viz převzetí níž), ne puštěním prstu.
   if(touch.fire){
-    if(ball.owner === S.ctrl)
+    if(S.aimFrom)
       ball.pending = { x:touch.fire.x, y:touch.fire.y, speed:passSpeedFor(touch.fire.pw),
-                       until: S.time + T.passQueueMax/1000 };
+                       until: ball.owner === S.ctrl ? S.time + T.passQueueMax/1000 : 0 };
     touch.fire = null;
   }
 
@@ -158,8 +177,19 @@ function step(dt){
     if(taker){
       var tv = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
       if(taker.role === 'gk' && tv > T.gkParrySpeed) parry(taker);   // moc rychlé na chycení
-      else { ball.owner = taker; ball.vx = ball.vy = 0; ball.held = true; S.lastTeam = taker.team;
-             ball.claim = null; ball.gained = S.time; ball.pending = null; pickChasers(); }
+      else {
+        ball.owner = taker; ball.vx = ball.vy = 0; ball.held = true; S.lastTeam = taker.team;
+        ball.claim = null; ball.gained = S.time;
+        // Nachystaná přihrávka PŘEŽIJE převzetí vlastním hráčem: blok kontaktu hned pod tímhle
+        // ji v tomtéž snímku odehraje, takže se hraje z první — příjem je ten dotek, který ji
+        // odehrává. Soupeřovo převzetí ji zahodí. Odpočet vypršení začíná až tady.
+        if(taker.team !== S.ctrl.team){
+          ball.pending = null; S.aimFrom = null; S.recv = null;   // ať linka zmizí týmž snímkem
+        } else if(ball.pending && !ball.pending.until){
+          ball.pending.until = S.time + T.passQueueMax/1000;
+        }
+        pickChasers();
+      }
     }
   }
 
@@ -168,7 +198,7 @@ function step(dt){
   // nebo rychlost, nebo odehrát nachystanou přihrávku.
   if(ball.owner){
     var o = ball.owner;
-    if(ball.pending && S.time > ball.pending.until) ball.pending = null;
+    if(ball.pending && ball.pending.until && S.time > ball.pending.until) ball.pending = null;
     if(dist(o, ball) <= CONTACT){
       if(ball.pending){
         // odehrává se z místa míče a v uloženém směru, ne kam ukazuje prst teď

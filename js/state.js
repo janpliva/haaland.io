@@ -9,6 +9,8 @@ export const S = {
   ctrl:null, time:0, lockOut:0, lockedPlayer:null, lastTeam:'b',
   kickNext:'b', scoreB:0, scoreR:0, matchOver:false, running:false,
   deadTime:0, roleTimer:0, lastCarrier:null, drawAim:null,
+  // odkud se míří a kdo míč podle nároku zpracuje jako první (jednodotyková přihrávka)
+  aimFrom:null, recv:null,
   cssW:0, cssH:0, scale:1, FIELD_H:2000
 };
 
