@@ -33,60 +33,89 @@ export const E = { blue: [], red: [], all: [], gkB: null, gkR: null };
 // import jednosměrný, util si sem funkci zapíše při svém načtení.
 export const hooks = { pickChasers: function(){} };
 
-// ---- krátká paměť držitele míče ----
-// Presující obránce sleduje HRÁČE s míčem a vidí ho se zpožděním defReact. Míč sám se
-// nezpožďuje nikdy: jeho pohyb je pilovitý (každý dotek ho znovu kopne, viz startKick), a
-// zpožděný pozorovatel neumí odlišit takový kop od změny směru — změřeno, obránce pak
-// prohrával i s hráčem, který jen běžel šikmo kolem něj. Běh držitele je naopak mezi doteky
-// rovnoměrný, takže se dá dopočítat dopředu a zpoždění nestojí NIC, dokud držitel běží
-// pořád stejně. Chyba vznikne přesně tehdy, když směr změní — a to je ta klička.
+// ---- krátká paměť: jak kdo běžel ----
+// Obránce vidí SOUPEŘE se zpožděním defReact — každého, ne jen držitele míče. Vlastní tým,
+// vlastní polohu a odebrání má vždycky živé. Paměť je proto per hráč: každý si nese svůj
+// kruhový buffer, takže se do něj dá sáhnout na kohokoliv bez ohledu na to, kdo má míč.
+//
+// Vjem se z ní skládá tak, že se vzorek dopočítá dopředu tehdejší rychlostí: dokud hráč běží
+// pořád stejně, vyjde přesně tam, kde opravdu je (chyba nula), a mine se přesně tehdy, když
+// hráč směr změní. To je celý mechanismus — kdyby se místo toho mířilo na starou polohu,
+// zpoždění by stálo obránce něco i při rovném běhu (změřeno v předchozím kroku).
 //
 // Vzorek se ukládá JEDNOU za snímek na začátku kroku, ještě než se čímkoli hne, takže
 // nejnovější vzorek odpovídá tomu, co v témže snímku čte AI. Kapacita se počítá v čase,
 // ne ve snímcích: 256 vzorků pokryje i 120Hz displej (2,1 s historie).
 const HN = 256;
-const hT = new Float64Array(HN), hX = new Float64Array(HN), hY = new Float64Array(HN),
-      hVX = new Float64Array(HN), hVY = new Float64Array(HN);
-const hOwn = new Array(HN);         // kdo byl v tom snímku držitel — jiný držitel = jiná paměť
-var hN = 0, hI = 0;                 // kolik vzorků paměť drží a kam se zapíše další
+const VW = 0.15;                   // z jak dlouhého úseku se odhaduje rychlost
 
-export function histClear(){ hN = 0; hI = 0; for(var i=0;i<HN;i++) hOwn[i] = null; }
-export function histPush(){
-  var o = ball.owner, vx = 0, vy = 0;
-  // Rychlost držitele se NEODHADUJE z rozdílu poloh — carryChase ho v tomhle cyklu veze
-  // přesně rychlostí chaseV ve směru fx,fy, takže se dá vzít rovnou. Rozdíl dvou snímků
-  // by při kolísavém dt šuměl a cíl obránce by cukal (naměřeno 17 jednotek na snímek).
-  if(o && !ball.held){ vx = o.fx * ball.chaseV; vy = o.fy * ball.chaseV; }
-  hT[hI] = S.time; hOwn[hI] = o;
-  hX[hI] = o ? o.x : ball.x; hY[hI] = o ? o.y : ball.y;
-  hVX[hI] = vx; hVY[hI] = vy;
-  hI = (hI + 1) % HN;
-  if(hN < HN) hN++;
+export function mkHist(){
+  return { n:0, i:0, t:new Float64Array(HN), x:new Float64Array(HN), y:new Float64Array(HN),
+           vx:new Float64Array(HN), vy:new Float64Array(HN) };
 }
-// Kde byl držitel před `delay` sekundami a jak tehdy běžel. Mezi vzorky se interpoluje
-// lineárně — kdyby se skákalo po celých snímcích, cíl obránce by se při kolísavém dt trhal.
-// Vrací i `age`: jak starý ten obrázek doopravdy je. Když paměť tak daleko nesahá nebo v tom
-// okně držel míč někdo jiný, vezme se nejstarší vzorek TOHOTO držitele a age je kratší —
-// zpoždění tak po každé změně držení plynule najíždí od nuly, místo aby se přepínalo.
-// ok = false jen tehdy, když o tomhle držiteli není zatím vůbec nic.
-export function histCarrier(delay){
-  var o = ball.owner;
-  if(!o || hN === 0) return { ok:false };
-  var want = S.time - delay, k = (hI - 1 + HN) % HN;
-  if(hOwn[k] !== o) return { ok:false };
-  if(want >= hT[k]) return { ok:true, age:delay, x:hX[k], y:hY[k], vx:hVX[k], vy:hVY[k] };
-  for(var s=1; s<hN; s++){
+// Pro dopočet dopředu je potřeba rychlost, kterou hráč DRŽÍ, ne ta okamžitá: krok pohybu se
+// u cíle usekne (min(sp*dt, d)), takže rozdíl dvou sousedních snímků při kolísavém dt šumí a
+// cíl obránce pak cuká (naměřeno 17 jednotek na snímek). Bere se proto z úseku dlouhého VW,
+// kde se ten jednosnímkový zub rozmělní. U držitele míče se nemusí odhadovat vůbec — carryChase
+// ho veze přesně rychlostí chaseV ve směru fx,fy, a to je i ta rychlost, kterou po dalším
+// doteku pojede dál, takže je to pro dopočet lepší údaj než okamžitý dojezd k míči.
+// Začátek toho úseku se INTERPOLUJE, neskáče se po vzorcích: při kolísavém dt se jinak okraj
+// okna přehazuje mezi sousedními vzorky a odhad rychlosti kvantuje — cíl hlídajícího obránce
+// pak cukal (naměřeno 4,9 jednotky na snímek proti 0,8 u živého cíle).
+function posAt(h, want){
+  var k = (h.i - 1 + HN) % HN;
+  if(want >= h.t[k]) return { x:h.x[k], y:h.y[k], t:h.t[k] };
+  for(var s=1; s<h.n; s++){
     var prev = (k - 1 + HN) % HN;
-    if(hOwn[prev] !== o) break;                     // dál už míč držel někdo jiný
-    if(hT[prev] <= want){
-      var span = hT[k] - hT[prev], w = span > 1e-9 ? (want - hT[prev])/span : 0;
-      return { ok:true, age:delay,
-               x: hX[prev] + (hX[k]-hX[prev])*w,    y: hY[prev] + (hY[k]-hY[prev])*w,
-               vx: hVX[prev] + (hVX[k]-hVX[prev])*w, vy: hVY[prev] + (hVY[k]-hVY[prev])*w };
+    if(h.t[prev] <= want){
+      var span = h.t[k] - h.t[prev], w = span > 1e-9 ? (want - h.t[prev])/span : 0;
+      return { x: h.x[prev] + (h.x[k]-h.x[prev])*w, y: h.y[prev] + (h.y[k]-h.y[prev])*w, t: want };
     }
     k = prev;
   }
-  return { ok:true, age: S.time - hT[k], x:hX[k], y:hY[k], vx:hVX[k], vy:hVY[k] };
+  return { x:h.x[k], y:h.y[k], t:h.t[k] };
+}
+function velOver(h, x, y, t){
+  if(h.n === 0) return { x:0, y:0 };
+  var a = posAt(h, t - VW), span = t - a.t;
+  if(!(span > 1e-6)) return { x:0, y:0 };
+  return { x: (x - a.x)/span, y: (y - a.y)/span };
+}
+
+export function histClear(){
+  for(var i=0;i<E.all.length;i++){ E.all[i].h.n = 0; E.all[i].h.i = 0; }
+}
+export function histPush(){
+  for(var i=0;i<E.all.length;i++){
+    var p = E.all[i], h = p.h;
+    var v = (p === ball.owner) ? (ball.held ? { x:0, y:0 } : { x: p.fx*ball.chaseV, y: p.fy*ball.chaseV })
+                               : velOver(h, p.x, p.y, S.time);
+    h.t[h.i] = S.time; h.x[h.i] = p.x; h.y[h.i] = p.y; h.vx[h.i] = v.x; h.vy[h.i] = v.y;
+    h.i = (h.i + 1) % HN;
+    if(h.n < HN) h.n++;
+  }
+}
+// Kde hráč byl před `delay` sekundami a jak tehdy běžel. Mezi vzorky se interpoluje lineárně
+// — kdyby se skákalo po celých snímcích, cíl obránce by se při kolísavém dt trhal.
+// Vrací i `age`: jak starý ten obrázek doopravdy je. Když paměť tak daleko nesahá (po výkopu,
+// po přestavbě týmů), vezme se nejstarší vzorek a age je kratší — zpoždění tak najíždí
+// plynule od nuly, místo aby naskočilo celé naráz.
+export function histAt(p, delay){
+  var h = p && p.h;
+  if(!h || h.n === 0) return { ok:false };
+  var want = S.time - delay, k = (h.i - 1 + HN) % HN;
+  if(want >= h.t[k]) return { ok:true, age:delay, x:h.x[k], y:h.y[k], vx:h.vx[k], vy:h.vy[k] };
+  for(var s=1; s<h.n; s++){
+    var prev = (k - 1 + HN) % HN;
+    if(h.t[prev] <= want){
+      var span = h.t[k] - h.t[prev], w = span > 1e-9 ? (want - h.t[prev])/span : 0;
+      return { ok:true, age:delay,
+               x: h.x[prev] + (h.x[k]-h.x[prev])*w,    y: h.y[prev] + (h.y[k]-h.y[prev])*w,
+               vx: h.vx[prev] + (h.vx[k]-h.vx[prev])*w, vy: h.vy[prev] + (h.vy[k]-h.vy[prev])*w };
+    }
+    k = prev;
+  }
+  return { ok:true, age: S.time - h.t[k], x:h.x[k], y:h.y[k], vx:h.vx[k], vy:h.vy[k] };
 }
 
 export function resize(){
@@ -109,7 +138,7 @@ export function clampField(p){
 // bx/by/bsf = nabufferovaný vstup (stick u člověka, směr k cíli u AI) — projeví se až u doteku
 export function mk(team){ return { x:0, y:0, fx:0, fy:-1, team:team, tx:0, ty:0, think:0,
                             seed:Math.random()*100, sf:0, role:'', plan:null, side:0,
-                            bx:0, by:-1, bsf:0,
+                            bx:0, by:-1, bsf:0, h:mkHist(),
                             shotOn:false, shotId:0, shotDeadline:0, shotX:0, shotY:0 }; }
 
 export function buildTeams(){

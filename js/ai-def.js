@@ -1,7 +1,8 @@
 // Tým bez míče: jeden na míč, ostatní hlídají na brankové straně a drží linii.
 import { T, FIELD_W, dirOf } from './config.js';
 import { S, E, ball, dist, clampField } from './state.js';
-import { attackY, speedOf, moveTo, chaserOf, nearestTo, interceptPoint, perceivedBall } from './util.js';
+import { attackY, speedOf, moveTo, chaserOf, nearestTo, interceptPoint,
+         perceivedBall, perceivedFoe } from './util.js';
 
 const lastMan = { b:null, r:null }, lastManT = { b:0, r:0 };   // poslední obránce, drží se 0,5 s
 
@@ -11,8 +12,15 @@ export function defend(list, dt){
   var ogy = attackY(team === 'b' ? 'r' : 'b'), ogx = FIELD_W/2;   // vlastní branka
   var opp = list === E.blue ? E.red : E.blue;
 
+  // --- co tenhle blok o soupeři VÍ ---
+  // Každý soupeř se čte se zpožděním defReact, jeden pohled na snímek, ať se presink,
+  // hlídání i linie dívají na to samé. Vlastní tým (rozestup, poslední obránce, drift)
+  // i odebrání v main.js zůstávají živé — zpožděné je jen pozorování soupeře.
+  var see = [], bv = perceivedBall();
+  for(var v=0;v<opp.length;v++) see.push(perceivedFoe(team, opp[v]));
+
   // --- presink se zapne, až je míč dost blízko vlastní brance ---
-  var bgx = ball.x - ogx, bgy = ball.y - ogy;
+  var bgx = bv.x - ogx, bgy = bv.y - ogy;
   var bgl = Math.sqrt(bgx*bgx + bgy*bgy) || 1;
   var pressOn = bgl < T.pressDist;
   var hx = ogx + bgx/bgl*T.pressDist, hy = ogy + bgy/bgl*T.pressDist;   // kde se čeká
@@ -23,7 +31,7 @@ export function defend(list, dt){
   var chaser = (!ball.owner || pressOn) ? chaserOf(list) : nearestTo(list, hx, hy);
   var pool = [];
   for(var o=0;o<opp.length;o++){
-    if(opp[o] !== ball.owner && opp[o].role !== 'gk') pool.push(opp[o]);
+    if(opp[o] !== ball.owner && opp[o].role !== 'gk') pool.push(see[o]);
   }
 
   // --- poslední obránce: nejhlubší hráč týmu, role se drží, ať nepřeskakuje ---
@@ -44,8 +52,8 @@ export function defend(list, dt){
   var deepFoe = null, dfP = -1e9;
   for(var f=0;f<opp.length;f++){
     if(opp[f].role === 'gk') continue;
-    var fp = opp[f].y * gdir;
-    if(fp > dfP){ dfP = fp; deepFoe = opp[f]; }
+    var fp = see[f].y * gdir;
+    if(fp > dfP){ dfP = fp; deepFoe = see[f]; }
   }
   var lineY = deepFoe ? deepFoe.y + gdir*T.lineGap : ogy;
 
@@ -53,14 +61,11 @@ export function defend(list, dt){
     var r = list[k];
     if(r === S.ctrl || r.role === 'gk') continue;
     if(r === chaser){
-      // Presink na držitele je JEDINÉ místo, kde obránce sleduje soupeře snímek po snímku —
-      // a jediné, kterého se týká reakční čas: běží podle toho, co držitel dělal před
-      // defReact ms (perceivedBall). Volný míč se nezpožďuje (to není hlídání hráče, ale
-      // závod o balon), držící bod níž taky ne (to je tvar bloku) a odebrání v main.js
+      // Presink běží podle toho, co držitel dělal před defReact ms (bv). Volný míč se
+      // nezpožďuje — to není hlídání hráče, ale závod o balon — a odebrání v main.js
       // pořád počítá se skutečnou polohou míče.
       if(!ball.owner || pressOn){
-        var view = (ball.owner && ball.owner.team !== team) ? perceivedBall() : ball;
-        var ipd = interceptPoint(r, view); moveTo(r, ipd.x, ipd.y, speedOf(r), dt);
+        var ipd = interceptPoint(r, bv); moveTo(r, ipd.x, ipd.y, speedOf(r), dt);
       }
       // mimo dosah nevybíhá — čeká na spojnici míč–vlastní branka, blok se nerozbije
       else moveTo(r, hx, hy, speedOf(r)*0.9, dt);
@@ -71,7 +76,7 @@ export function defend(list, dt){
       var td = dist(r, pool[q]);
       if(td < tdBest){ tdBest = td; ti = q; tgt = pool[q]; }
     }
-    if(!tgt){ var ipf = interceptPoint(r); moveTo(r, ipf.x, ipf.y, speedOf(r)*0.85, dt); continue; }
+    if(!tgt){ var ipf = interceptPoint(r, bv); moveTo(r, ipf.x, ipf.y, speedOf(r)*0.85, dt); continue; }
     pool.splice(ti, 1);
 
     // postav se mezi hlídaného a VLASTNÍ BRANKU (dřív to bylo mezi něj a míč)
@@ -79,7 +84,7 @@ export function defend(list, dt){
     var mx2 = tgt.x + lx/ll*T.markDist;
     var my2 = tgt.y + ly/ll*T.markDist;
     // úkrok k míči je jen v ose x, takže nemůže obránce dostat před jeho hráče
-    mx2 += (ball.x - tgt.x) * (T.markShift/100);
+    mx2 += (bv.x - tgt.x) * (T.markShift/100);
 
     // drift jen v okolí míče; vzdálení obránci stojí a drží tvar
     var w = Math.max(0, Math.min(1, 1 - dist(r, ball)/Math.max(1, T.wobbleNear)));

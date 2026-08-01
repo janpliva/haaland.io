@@ -70,11 +70,11 @@ export const TUNABLES = [
   { key:'lineGap',       def:60,   min:0,   max:200,  step:5,   label:'Odstup obranné linie',        group:'Obrana' },
   { key:'pressDist',     def:900,  min:200, max:2000, step:20,  label:'Vzdálenost presinku',         group:'Obrana' },
   { key:'wobbleNear',    def:600,  min:100, max:1500, step:20,  label:'Dosah driftu obránců',        group:'Obrana' },
-  // Presující obránce vidí držitele míče se zpožděním: běží na to, co držitel dělal před
-  // defReact ms, takže po kličce je defReact dlouho zavázaný ve starém směru (viz
-  // perceivedBall v util.js). Týká se JEN presinku na držitele — ne tvaru bloku, hlídání,
-  // brankáře ani odebrání, a rovnou stejně obou týmů.
-  { key:'defReact',      def:600,  min:0,   max:600,  step:10,  label:'Reakční čas obránce (ms)',    group:'Obrana' },
+  // Obránce vidí SOUPEŘE se zpožděním: běží na to, co soupeř dělal před defReact ms, takže
+  // po kličce je defReact dlouho zavázaný ve starém směru (viz perceivedFoe/perceivedBall
+  // v util.js). Platí na presink, hlídání, obrannou linii i spouštění presinku, stejně pro
+  // oba týmy. NEplatí na vlastní tým, brankáře (má gkReaction) ani na odebrání.
+  { key:'defReact',      def:600,  min:0,   max:1200, step:10,  label:'Reakční čas obránce (ms)',    group:'Obrana' },
 
   // Brankář chytá tělem; tohle řídí jen postavení, reakci, zákrok a rozehrávku.
   { key:'gkDepth',       def:55,   min:0,   max:160,  step:5,   label:'Vysunutí brankáře',           group:'Brankář' },

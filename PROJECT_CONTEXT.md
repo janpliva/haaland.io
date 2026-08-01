@@ -135,14 +135,26 @@ excluded from both by `role === 'gk'` and are driven only by `playKeeper`.
   the holding spot stayed empty. With the fix a defender parks at 898 against a target of 900.
 - **Drift only near the ball.** Marker wobble is scaled by `1 − dist(ball, defender)/wobbleNear`,
   so defenders far from the ball stand still and hold the shape.
-- **Reaction time, on the man.** The presser is the only defender that tracks an opponent frame
-  by frame, and the only one `defReact` touches. He aims at the picture of the carrier he had
-  `defReact` ms ago, carried forward at the speed and heading he saw then: while the carrier
-  runs uniformly the estimate is exact and the target is bit-for-bit today's, and the moment
-  the carrier changes direction the presser stays committed to the old one for `defReact`.
-  Not delayed: shape-holding, the holding point, markers, keepers, loose-ball races, and the
-  steal — the tackle always uses the ball's real position. `defReact` 0 is the same code path
-  as before the feature, verified identical over six seeded matches.
+- **Reaction time, on every read of an opponent.** A defending player sees the *opposing team*
+  as it was `defReact` ms ago, carried forward at the speed and heading he saw then: while an
+  opponent runs uniformly the estimate is exact and the target is bit-for-bit today's, and the
+  moment that opponent changes direction the defender stays committed to the old one for
+  `defReact`. It covers the press, the marked man, `markShift`'s ball x, the holding point when
+  press is off, the deepest-attacker reference behind `lineY`, and the press trigger itself —
+  one code path, both teams. Every player carries his own 256-sample ring of position and
+  velocity (`histPush`/`histAt` in `state.js`); `perceivedFoe` builds the view of a player and
+  `perceivedBall` the view of the carrier-plus-ball, rotation included.
+  Live, never delayed: his own position, his own team (spacing, last-man role, wobble), the
+  keepers (they have `gkReaction`), loose balls (a loose ball is not a player), the human's own
+  controlled player, attacking logic in `ai-off.js`/`ai-ball.js`, and the steal — the tackle
+  always uses the ball's real position. `defReact` 0 is the same code path as before the
+  feature, verified identical over six seeded matches.
+
+The velocity that gets extrapolated is the one a player *sustains*, not his instantaneous
+step: a movement step is clipped to `min(speed·dt, distance)`, so differencing two neighbouring
+frames turns frame-time jitter into a shaking target. It is measured over a fixed 150 ms window
+with an interpolated start, and for the ball carrier it is not estimated at all — `carryChase`
+carries him at exactly `chaseV` along `fx,fy`.
 
 Why the delay is on the carrier and not on the ball: the ball at a dribbler's feet is a
 sawtooth — every touch re-kicks it, so its speed jumps once per cycle. A delayed observer
@@ -436,8 +448,8 @@ updateClaim / lungeSolve /
   lungeActive / lungeStep      reception claim and lunge        util.js
 moveTo                         everyone not carrying/lunging    util.js
 interceptSolve / pickChasers   who goes for a loose ball        util.js
-histPush / histCarrier         short memory of the carrier      state.js
-perceivedBall                  what a pressing defender sees    util.js
+histPush / histAt              per-player short memory          state.js
+perceivedFoe / perceivedBall   what a defender sees of them     util.js
 doPass                         releases the ball                util.js
 assignRoles / mateTarget       teammate lanes and spots         ai-off.js
 decide / driveCarrier          AI carrier plans and kicks       ai-ball.js
@@ -584,7 +596,7 @@ these values. They are hand-tuned by playing — do not change one without being
 | `lineGap` | 60 | 0–200 (5) | units | How far behind the deepest attacker the defensive line sits. |
 | `pressDist` | 900 | 200–2000 (20) | units | Ball must be within this of the defending goal before anyone presses it. |
 | `wobbleNear` | 600 | 100–1500 (20) | units | Distance from the ball at which a marker's drift fades to zero. |
-| `defReact` | 600 | 0–600 (10) | ms | How stale the pressing defender's picture of the ball carrier is. 0 = today's frame-perfect mirroring. |
+| `defReact` | 600 | 0–1200 (10) | ms | How stale a defender's picture of the *opposing team* is — press, marking, line and press trigger alike. 0 = frame-perfect mirroring. |
 | `gkDepth` | 55 | 0–160 (5) | units | How far off his line the keeper stands. Positioning only — he saves with his body. |
 | `gkReaction` | 180 | 0–500 (10) | ms | Delay before the keeper reacts to a detected shot. |
 | `gkError` | 25 | 0–200 (5) | units | One-off random error on the sampled save point. |

@@ -1,6 +1,6 @@
 // Geometrie, „kdo je kdo" a náběh na míč. Vrstva nad state, pod AI.
 import { T, FIELD_W, PH, CONTACT, dirOf } from './config.js';
-import { S, E, ball, dist, clampField, hooks, histCarrier } from './state.js';
+import { S, E, ball, dist, clampField, hooks, histAt } from './state.js';
 
 export { dist, clampField };          // ať je zbytek kódu bere z jednoho místa
 
@@ -154,15 +154,29 @@ export function interceptPoint(p, b){ var s = interceptSolve(p, b); return { x:s
 // rychlostí. O kolik se takový odhad mine se skutečností, o tolik je vedle i cíl.
 //   běží pořád stejně  → odhad sedí, chyba nula, cíl je přesně ten dnešní
 //   změní směr         → obránce po celý defReact míří tam, kam držitel běžel PŘED kličkou
-// Míč se veze s tím obrázkem včetně natočení, takže dokud se klička nedostane přes zpoždění,
-// obránce si myslí, že mu míč pořád utíká na starou stranu. Odebrání (main.js) i nárok
-// pracují dál se skutečnou polohou — zpoždění je vjem, ne handicap na zákrok.
-// Míč sám se nezpožďuje záměrně, viz histCarrier ve state.js.
+// Jak obránce vidí SOUPEŘE: hráč, jak vypadal před defReact ms, dopočítaný dopředu tehdejší
+// rychlostí. Vlastního spoluhráče vidí živě — vrací se rovnou on sám, takže se u něj nic
+// nealokuje a při defReact 0 jde všude přesně ten samý objekt jako dřív.
+export function perceivedFoe(team, p){
+  if(!(T.defReact > 0) || !p || p.team === team) return p;
+  var h = histAt(p, T.defReact/1000);
+  if(!h.ok) return p;
+  var x = h.x + h.vx*h.age, y = h.y + h.vy*h.age;     // kde by byl, kdyby nic nezměnil
+  return (isFinite(x) && isFinite(y)) ? { x:x, y:y, vx:h.vx, vy:h.vy } : p;
+}
+// Míč se veze s obrázkem držitele včetně natočení, takže dokud se klička nedostane přes
+// zpoždění, obránce si myslí, že mu míč pořád utíká na starou stranu. Odebrání (main.js) i
+// nárok pracují dál se skutečnou polohou — zpoždění je vjem, ne handicap na zákrok.
+// Volný míč se nezpožďuje vůbec: zpožděné je pozorování HRÁČŮ, a volný míč není hráč.
 export function perceivedBall(){
   if(!(T.defReact > 0) || !ball.owner) return ball;
-  var h = histCarrier(T.defReact/1000), now = histCarrier(0);
+  var o = ball.owner;
+  // Paměť míče začíná až tím, kdy ho tenhle hráč získal — před tím byl míč někde jinde,
+  // takže by se dopočítával obrázek, který nikdy neexistoval.
+  var age = Math.min(T.defReact/1000, Math.max(0, S.time - ball.gained));
+  var h = histAt(o, age), now = histAt(o, 0);
   if(!h.ok || !now.ok) return ball;                   // bez použitelné paměti se nic nepředstírá
-  var o = ball.owner, d = h.age;                      // skutečné stáří obrázku, ne požadované
+  var d = h.age;                                      // skutečné stáří obrázku, ne požadované
   var px = h.x + h.vx*d, py = h.y + h.vy*d;           // kde by držitel byl, kdyby nic nezměnil
   // natočení ze skutečného směru běhu do toho vnímaného; míč se veze s celým obrázkem
   var c = 1, s = 0;
