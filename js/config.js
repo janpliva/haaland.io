@@ -22,25 +22,23 @@ export const TUNABLES = [
   { key:'foeSpeed',      def:200,  min:100, max:320,  step:5,   label:'Rychlost soupeřů (AI)',       group:'Pohyb' },
 
   // Jak se míč chová u nohy: kdo ho kdy má, jak daleko se předkopává a jak tvrdě poslouchá.
-  { key:'pickupMate',    def:55,   min:16,  max:90,   step:1,   label:'Dosah zpracování — můj tým',  group:'Míč' },
-  { key:'foePickup',     def:55,   min:16,  max:90,   step:1,   label:'Dosah zpracování — soupeř',   group:'Míč' },
-  { key:'tackleR',       def:10,   min:9,   max:60,   step:1,   label:'Dosah odebrání',              group:'Míč' },
-  // Driblink je SCRIPTOVANÝ cyklus doteku, ne fyzika: míč je po celý cyklus přilepený na
-  // vzorec ball = hráč + touchDir * maxLead*sin(pi*progress). Vyjede dopředu a vrátí se
-  // přesně na nulu — a ta nula JE dotek. Míč proto nemůže hráči utéct.
-  { key:'touchLead',       def:10,  min:0,   max:150, step:5,   label:'Délka předkopu',              group:'Míč' },
-  { key:'touchCycleWalk',  def:600, min:60,  max:600, step:10,  label:'Cyklus doteku — chůze (ms)',  group:'Míč' },
-  { key:'touchCycleSprint',def:600, min:100, max:600, step:10,  label:'Cyklus doteku — sprint (ms)', group:'Míč' },
-  // Mezi doteky stick směr ani rychlost nemění — to je ta zavázanost. 0 = plný zámek,
+  { key:'pickupMate',    def:40,   min:16,  max:90,   step:1,   label:'Dosah zpracování — můj tým',  group:'Míč' },
+  { key:'foePickup',     def:40,   min:16,  max:90,   step:1,   label:'Dosah zpracování — soupeř',   group:'Míč' },
+  { key:'tackleR',       def:3,   min:0,   max:60,   step:1,   label:'Dosah odebrání',              group:'Míč' },
+  // Driblink je FYZIKÁLNÍ: při kontaktu se míč kopne rychlostí v + touchPush*m, pak se sám
+  // kutálí a brzdí třením, zatímco držitel automaticky běží NA MÍČ rychlostí v. Cyklus končí
+  // tím, že ho tělem dostihne — je to výsledek vzdálenosti, ne odpočet.
+  { key:'touchPush',       def:140, min:0,   max:600, step:10,  label:'Síla předkopu',               group:'Míč' },
+  // Mezi kontakty stick směr ani rychlost nemění — to je ta zavázanost. 0 = plný zámek,
   // 100 = stick působí průběžně.
   { key:'chaseSteer',      def:0,   min:0,   max:100, step:5,   label:'Ovládání během doběhu (%)',   group:'Míč' },
-  // Dosah zpracování míč nezastavuje — jen určí, kdo si po něm cukne. Tohle je rychlost
-  // toho cuknutí, v procentech běžné rychlosti hráče.
-  { key:'lungeSpeed',      def:200, min:100, max:500, step:10,  label:'Rychlost cuknutí pro zpracování (%)', group:'Míč' },
-  { key:'friction',      def:700,  min:80,  max:700,  step:10,  label:'Tření míče',                  group:'Míč' },
+  // Dosah zpracování míč nezastavuje — jen určí, kdo si po něm cukne. Tohle je STROP rychlosti
+  // toho cuknutí; skutečná rychlost vychází z toho, co si zásah opravdu žádá.
+  { key:'lungeSpeed',      def:50, min:10, max:500, step:10,  label:'Rychlost cuknutí pro zpracování (%)', group:'Míč' },
+  { key:'friction',      def:400,  min:80,  max:700,  step:10,  label:'Tření míče',                  group:'Míč' },
 
   // Síla přihrávky se odvíjí od toho, jak daleko za prahem zvedneš prst.
-  { key:'passSpeed',     def:660,  min:300, max:1100, step:20,  label:'Síla přihrávky',              group:'Přihrávka' },
+  { key:'passSpeed',     def:800,  min:300, max:1100, step:20,  label:'Síla přihrávky',              group:'Přihrávka' },
   { key:'passRange',     def:120,  min:40,  max:260,  step:5,   label:'Dosah síly přihrávky',        group:'Přihrávka' },
   { key:'passMin',       def:40,   min:10,  max:90,   step:5,   label:'Nejslabší přihrávka (%)',     group:'Přihrávka' },
   { key:'aimLen',        def:33,   min:5,   max:100,  step:1,   label:'Délka linky míření (%)',      group:'Přihrávka' },

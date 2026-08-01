@@ -1,8 +1,8 @@
 // Simulační krok, smyčka a start.
 import { T, FIELD_W, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
 import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField } from './state.js';
-import { foesOf, stealR, inOwnBox, bufferInput, ballOffset, updateClaim, lungeStep,
-         startCycle, holdBall, detachBall, doPass, pickChasers, rollDist } from './util.js';
+import { foesOf, stealR, inOwnBox, bufferInput, updateClaim, lungeStep, carryChase,
+         startKick, holdBall, doPass, pickChasers, rollDist } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
 import { attack } from './ai-off.js';
 import { defend } from './ai-def.js';
@@ -33,8 +33,9 @@ function step(dt){
   // vstup se nabufferuje; v cyklu doteku se běží po touchDir, ne po sticku — proto zvednutý
   // prst hráče uprostřed cyklu nezastaví a dotek (a s ním nachystaná přihrávka) vždycky přijde
   var mv = bufferInput(S.ctrl, sx, sy, stickSF);
-  // když si zrovna sám cukl po volném míči, řídí ho zpracování — stick se jen bufferuje
-  if(mv.sf > 0 && !(ball.claim === S.ctrl && !ball.owner)){
+  // s míčem ho vede doběh a při zpracování cuknutí — stick se v obou případech jen bufferuje
+  var driven = (ball.owner === S.ctrl) || (ball.claim === S.ctrl && !ball.owner);
+  if(mv.sf > 0 && !driven){
     var sp = T.playerSpeed * mv.sf, x0 = S.ctrl.x, y0 = S.ctrl.y;
     S.ctrl.fx = mv.x; S.ctrl.fy = mv.y;
     S.ctrl.x += mv.x*sp*dt; S.ctrl.y += mv.y*sp*dt;
@@ -55,7 +56,7 @@ function step(dt){
     touch.fire = null;
   }
 
-  S.ctrl.sf = moveSF;
+  if(!driven) S.ctrl.sf = moveSF;      // jinak sf nastavuje doběh / cuknutí
 
   // --- kdo útočí: tým s míčem, a když je míč v letu, ten, kdo ho odehrál ---
   var carrier = ball.owner;
@@ -73,46 +74,47 @@ function step(dt){
   updateClaim();
   lungeStep(dt);
 
-  // --- míč ---
-  // V cyklu doteku se pozice POČÍTÁ, ne simuluje: míč visí na hráči a utéct mu nemůže.
-  // Mimo cyklus (volný míč, přihrávka v letu, zpracování) je to pořád obyčejná fyzika.
-  var inMouth;
-  if(ball.attached && ball.owner){
-    var ow = ball.owner;
-    if(!ball.held) ball.cycleT += dt;
-    ball.eT += dt;
-    var off = ballOffset(ow);
-    ball.x = ow.x + off.x; ball.y = ow.y + off.y;
-    ball.vx = ball.vy = 0;
-    // gól platí i s míčem u nohy; mimo branku se míč jen přidrží na hřišti
-    inMouth = Math.abs(ball.x - FIELD_W/2) < T.goalW/2;
-    if(inMouth && ball.y < BALL_R){ goal('b'); return; }
-    if(inMouth && ball.y > S.FIELD_H-BALL_R){ goal('r'); return; }
-    ball.x = Math.max(BALL_R, Math.min(FIELD_W-BALL_R, ball.x));
-    ball.y = Math.max(BALL_R, Math.min(S.FIELD_H-BALL_R, ball.y));
-  } else {
-    var sp2 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
-    if(sp2 > 0){
-      var ns = Math.max(0, sp2 - T.friction*dt);
-      ball.vx = ball.vx/sp2*ns; ball.vy = ball.vy/sp2*ns;
-    }
-    ball.x += ball.vx*dt; ball.y += ball.vy*dt;
-    if(ball.x < BALL_R){ ball.x = BALL_R; ball.vx = -ball.vx*0.72; }
-    if(ball.x > FIELD_W-BALL_R){ ball.x = FIELD_W-BALL_R; ball.vx = -ball.vx*0.72; }
-    // v brance se míč neodrazí — projde a je gól
-    inMouth = Math.abs(ball.x - FIELD_W/2) < T.goalW/2;
-    if(ball.y < BALL_R){
-      if(inMouth){ goal('b'); return; }
-      ball.y = BALL_R; ball.vy = -ball.vy*0.72;
-    }
-    if(ball.y > S.FIELD_H-BALL_R){
-      if(inMouth){ goal('r'); return; }   // vlastní gól se počítá
-      ball.y = S.FIELD_H-BALL_R; ball.vy = -ball.vy*0.72;
-    }
-    // odraz otočil volný míč o víc než 90° → závazek přestal dávat smysl, přepočítat
-    if(!ball.owner){
-      var vb = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
-      if(vb > 0.001 && (ball.vx/vb*ball.chaseDir.x + ball.vy/vb*ball.chaseDir.y) < 0) pickChasers();
+  // --- doběh držitele: běží automaticky NA MÍČ, ne po uloženém vektoru ---
+  carryChase(dt);
+
+  // --- míč: VŽDYCKY obyčejná fyzika, nikdy přilepený na hráče ---
+  var sp2 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+  if(sp2 > 0){
+    var ns = Math.max(0, sp2 - T.friction*dt);
+    ball.vx = ball.vx/sp2*ns; ball.vy = ball.vy/sp2*ns;
+  }
+  ball.x += ball.vx*dt; ball.y += ball.vy*dt;
+  if(ball.x < BALL_R){ ball.x = BALL_R; ball.vx = -ball.vx*0.72; }
+  if(ball.x > FIELD_W-BALL_R){ ball.x = FIELD_W-BALL_R; ball.vx = -ball.vx*0.72; }
+  // v brance se míč neodrazí — projde a je gól
+  var inMouth = Math.abs(ball.x - FIELD_W/2) < T.goalW/2;
+  if(ball.y < BALL_R){
+    if(inMouth){ goal('b'); return; }
+    ball.y = BALL_R; ball.vy = -ball.vy*0.72;
+  }
+  if(ball.y > S.FIELD_H-BALL_R){
+    if(inMouth){ goal('r'); return; }   // vlastní gól se počítá
+    ball.y = S.FIELD_H-BALL_R; ball.vy = -ball.vy*0.72;
+  }
+  // odraz otočil volný míč o víc než 90° → závazek přestal dávat smysl, přepočítat
+  if(!ball.owner){
+    var vb = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+    if(vb > 0.001 && (ball.vx/vb*ball.chaseDir.x + ball.vy/vb*ball.chaseDir.y) < 0) pickChasers();
+  }
+
+  // pojistka: mezera nikdy nemá přesáhnout dvojnásobek odvozeného vrcholu. Nic se nespravuje —
+  // jen se to zaznamená i se stavem, který to způsobil, ať je vidět, že se to stalo.
+  if(ball.owner && !ball.held){
+    var gap = dist(ball.owner, ball);
+    if(gap > 2*ball.peakGap){
+      S.gapWarn = (S.gapWarn || 0) + 1;
+      if(!S.gapWarnLog) S.gapWarnLog = [];
+      if(S.gapWarnLog.length < 20){
+        S.gapWarnLog.push({ t:+S.time.toFixed(2), gap:+gap.toFixed(1), peak:+ball.peakGap.toFixed(1),
+                            chaseV:+ball.chaseV.toFixed(1), ballV:+Math.sqrt(ball.vx*ball.vx+ball.vy*ball.vy).toFixed(1),
+                            team:ball.owner.team, ctrl:ball.owner === S.ctrl });
+        console.warn('carry gap over 2x derived peak', S.gapWarnLog[S.gapWarnLog.length-1]);
+      }
     }
   }
 
@@ -126,8 +128,7 @@ function step(dt){
       if(fo[s1] === S.lockedPlayer && S.lockOut > 0) continue;
       if(dist(fo[s1], ball) < stealR(fo[s1])){
         S.lockedPlayer = ball.owner; S.lockOut = STEAL_LOCK;
-        detachBall();                                   // cyklus končí, míč dostane rozumnou rychlost
-        ball.owner = fo[s1]; ball.vx = ball.vy = 0; S.lastTeam = fo[s1].team;
+        ball.owner = fo[s1]; ball.vx = ball.vy = 0; ball.held = true; S.lastTeam = fo[s1].team;
         ball.gained = S.time; ball.pending = null; pickChasers();
         break;
       }
@@ -148,30 +149,27 @@ function step(dt){
     if(taker){
       var tv = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
       if(taker.role === 'gk' && tv > T.gkParrySpeed) parry(taker);   // moc rychlé na chycení
-      else { ball.owner = taker; ball.vx = ball.vy = 0; S.lastTeam = taker.team;
+      else { ball.owner = taker; ball.vx = ball.vy = 0; ball.held = true; S.lastTeam = taker.team;
              ball.claim = null; ball.gained = S.time; ball.pending = null; pickChasers(); }
     }
   }
 
-  // --- cyklus doteku ---
-  // Konec cyklu (progress 1, předkop zpátky na nule) JE přímý dotek. Teprve tam se projeví,
-  // co mezitím udělal stick: pokračovat, zastavit, změnit směr nebo rychlost, odehrát.
+  // --- kontakt: tělo držitele dostihlo míč. Konec cyklu je VÝSLEDEK VZDÁLENOSTI, ne odpočtu. ---
+  // Teprve tady se projeví, co mezitím udělal stick: pokračovat, zastavit, změnit směr
+  // nebo rychlost, nebo odehrát nachystanou přihrávku.
   if(ball.owner){
     var o = ball.owner;
     if(ball.pending && S.time > ball.pending.until) ball.pending = null;
-    if(!ball.attached){
-      // zpracovaný míč ještě leží — přilepí se, až k němu držitel doběhne
-      if(dist(o, ball) <= CONTACT) holdBall(o, o.fx, o.fy);
-    } else if(ball.held){
-      if(ball.pending){ var ph = ball.pending; ball.pending = null; doPass(ph.x, ph.y, ph.speed); }
-      else if((o.bsf || 0) > 0) startCycle(o, o.bx, o.by, o.bsf);   // stick se hnul → nový cyklus
-    } else if(ball.cycleT >= ball.cycleDur){
+    if(dist(o, ball) <= CONTACT){
       if(ball.pending){
-        // nachystaná přihrávka se odehraje právě tady, z místa míče a v uloženém směru
+        // odehrává se z místa míče a v uloženém směru, ne kam ukazuje prst teď
         var pp = ball.pending; ball.pending = null;
         doPass(pp.x, pp.y, pp.speed);
-      } else if((o.bsf || 0) > 0) startCycle(o, o.bx, o.by, o.bsf);
-      else holdBall(o, o.bx, o.by);          // prst dole/uprostřed → stojí a míč čeká u nohy
+      } else {
+        var m = o.bsf || 0;
+        if(m > 0) startKick(o, o.bx, o.by, m);
+        else holdBall(o);                    // prst dole → stojí a míč leží u nohy
+      }
     }
   }
 

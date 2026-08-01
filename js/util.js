@@ -35,83 +35,72 @@ export function inOwnBox(p){
 }
 
 // ---- pohyb ----
-// Vstup se VŽDY nabufferuje — projeví se ale až při doteku. Mezi doteky běží držitel po
-// touchDir rychlostí z posledního doteku; to je ta zavázanost. chaseSteer je únikový východ.
+// Vstup se VŽDY jen nabufferuje. Projeví se až při kontaktu — mezi kontakty držitele
+// neřídí stick, ale automatický doběh na míč (carryChase).
 export function bufferInput(p, nx, ny, sf){
   p.bx = nx; p.by = ny; p.bsf = sf;
-  if(ball.owner !== p || !ball.attached) return { x:nx, y:ny, sf:sf };
-  if(ball.held) return { x:nx, y:ny, sf:0 };            // stojí, dokud se stick nepohne
+  return { x:nx, y:ny, sf:sf };
+}
+
+// ---- fyzikální cyklus doteku ----
+// KONVERGENCE, odvozeno: při kopu má míč rychlost v + touchPush*m, držitel běží v, takže
+// relativní rychlost je touchPush*m a relativní zpomalení friction (držitel jede konstantně,
+// míč brzdí). Relativní dráha je s(t) = touchPush*m*t - friction*t²/2, z čehož:
+//     vrchol mezery = (touchPush*m)² / (2*friction)   v čase touchPush*m/friction
+//     délka cyklu   = 2*touchPush*m / friction        (kdy je s(t) zase nula)
+// Platí, dokud míč po celý cyklus ještě jede: zastaví se v čase (v + touchPush*m)/friction,
+// a to je >= délka cyklu právě když touchPush <= speedOf. Nad tím se míč zastaví dřív a
+// držitel zbytek dojde konstantní rychlostí — cyklus je pak DELŠÍ než vzorec, ale pořád
+// konečný. Doběh míří na MÍČ, ne na uložený vektor, takže odraz od mantinelu ani teč
+// držitele od míče neodpojí — to byla přesně chyba pokusů 63c67c1 a 457c95b.
+export function startKick(o, nx, ny, m){
+  var v = speedOf(o)*m, rel = T.touchPush*m;
+  ball.held = false;
+  ball.chaseV = v;
+  ball.vx = nx*(v + rel); ball.vy = ny*(v + rel);
+  ball.peakGap = CONTACT + rel*rel/(2*Math.max(1, T.friction));
+}
+export function holdBall(o){
+  ball.held = true; ball.chaseV = 0;
+  ball.vx = ball.vy = 0;              // míč zůstane ležet přesně tam, kde je — u nohy
+  ball.peakGap = CONTACT;
+}
+// Doběh: držitel běží NA MÍČ. Směr se počítá každý snímek, rychlost je z posledního kontaktu.
+// chaseSteer přimíchá stick do směru běhu (0 = čistý doběh, 100 = plné řízení).
+export function carryChase(dt){
+  var o = ball.owner; if(!o) return;
+  if(ball.held){ o.sf = 0; return; }
+  var dx = ball.x - o.x, dy = ball.y - o.y, d = Math.sqrt(dx*dx + dy*dy);
+  var nx = d > 0.001 ? dx/d : o.fx, ny = d > 0.001 ? dy/d : o.fy;
   var k = T.chaseSteer/100;
-  var mx = ball.tdx*(1-k) + nx*k, my = ball.tdy*(1-k) + ny*k;
-  var m = Math.sqrt(mx*mx + my*my);
-  if(m < 1e-6){ mx = ball.tdx; my = ball.tdy; m = 1; }
-  return { x:mx/m, y:my/m, sf: ball.csf*(1-k) + sf*k };
-}
-// délka předkopu v čase: 0 -> maxLead -> přesně 0. Ta nula na konci JE dotek, a protože je
-// nulová z obou stran, změna směru při doteku míčem netrhne.
-export function leadAt(pr){ return ball.maxLead * Math.sin(Math.PI*pr); }
-// Přechod mezi dvěma modelovými pozicemi se rozjede z toho, kde míč PRÁVĚ je, a dojede
-// k modelu za EASE_T. Bez toho míč poskočí o CONTACT: na konci cyklu je předkop nulový,
-// klidová pozice je ale CONTACT před hráčem (a při převzetí zase leží kdekoliv do CONTACT).
-export const EASE_T = 0.10;
-function easeFrom(o){ ball.ex = ball.x - o.x; ball.ey = ball.y - o.y; ball.eT = 0; }
-// odsazení míče od hráče: model, na začátku rozjetý z místa, kde míč byl
-export function ballOffset(o){
-  var mx, my;
-  if(ball.held){ mx = ball.tdx*CONTACT; my = ball.tdy*CONTACT; }
-  else {
-    var lead = leadAt(ball.cycleDur > 0 ? Math.min(1, ball.cycleT/ball.cycleDur) : 1);
-    mx = ball.tdx*lead; my = ball.tdy*lead;
+  if(k > 0){
+    var mx = nx*(1-k) + o.bx*k, my = ny*(1-k) + o.by*k;
+    var mm = Math.sqrt(mx*mx + my*my);
+    if(mm > 1e-6){ nx = mx/mm; ny = my/mm; }
   }
-  var u = Math.min(1, ball.eT/EASE_T), e = u*u*(3-2*u);
-  return { x: ball.ex + (mx - ball.ex)*e, y: ball.ey + (my - ball.ey)*e };
-}
-export function startCycle(o, nx, ny, sf){
-  easeFrom(o);
-  ball.attached = true; ball.held = false;
-  ball.tdx = nx; ball.tdy = ny; ball.csf = sf;
-  ball.maxLead = CONTACT + T.touchLead*sf;
-  ball.cycleDur = (T.touchCycleWalk + (T.touchCycleSprint - T.touchCycleWalk)*sf)/1000;
-  ball.cycleT = 0;
-}
-export function holdBall(o, nx, ny){
-  easeFrom(o);
-  ball.attached = true; ball.held = true;
-  ball.tdx = nx; ball.tdy = ny; ball.csf = 0;
-  ball.cycleT = 0; ball.cycleDur = 0; ball.maxLead = CONTACT;
-}
-// Uvolnění uprostřed cyklu: míč dostane rychlost držitele plus okamžitou změnu předkopu,
-// aby po odebrání ani po přihrávce viditelně neskočil a nezůstal stát.
-export function detachBall(){
-  if(!ball.attached) return;
-  var o = ball.owner;
-  if(o && !ball.held){
-    var pr = ball.cycleDur > 0 ? Math.min(1, ball.cycleT/ball.cycleDur) : 1;
-    var dLead = ball.maxLead * Math.PI/Math.max(0.001, ball.cycleDur) * Math.cos(Math.PI*pr);
-    var v = speedOf(o)*ball.csf + dLead;
-    ball.vx = ball.tdx*v; ball.vy = ball.tdy*v;
-  }
-  ball.attached = false; ball.held = false;
+  var step = Math.min(ball.chaseV*dt, d), x0 = o.x, y0 = o.y;
+  o.x += nx*step; o.y += ny*step;
+  o.fx = nx; o.fy = ny;
+  clampField(o);
+  var full = speedOf(o)*dt, ax = o.x-x0, ay = o.y-y0;
+  o.sf = full > 0 ? Math.min(1, Math.sqrt(ax*ax + ay*ay)/full) : 0;
 }
 
 export function moveTo(p, tx, ty, sp, dt){
   var dx = tx-p.x, dy = ty-p.y, d = Math.sqrt(dx*dx+dy*dy);
-  var carrying = (ball.owner === p && ball.attached && !ball.held);
-  // Kdo si míč narokoval, se za ním vrhá — jeho normální pohyb (běh na pozici, presink,
-  // závazek chasera) je po dobu cuknutí vypnutý. Vstup se ale pořád bufferuje, aby se
-  // při dotyku projevil. Tady se ty dva pohyby nepotkají, takže se nemají o co přetahovat.
-  if(ball.claim === p && !ball.owner){
-    bufferInput(p, d > 0.001 ? dx/d : p.fx, d > 0.001 ? dy/d : p.fy, sp > 0 ? 1 : 0);
-    return;
-  }
-  if(d < 2 && !carrying){ p.sf = 0; return; }     // v cyklu se doběhne i přes cíl
   // sf = podíl z MAXIMÁLNÍ rychlosti hráče, ne z té zrovna zadané — jinak by zpomalený
   // hráč hlásil sf=1 a předkop by počítal s rychlostí, kterou nemá
   var full = speedOf(p)*dt;
   var reqSF = full > 0 ? Math.min(1, Math.min(sp*dt, d)/full) : 0;
   var mv = bufferInput(p, d > 0.001 ? dx/d : p.fx, d > 0.001 ? dy/d : p.fy, reqSF);
+  // Držitele míče hýbe doběh (carryChase), toho, kdo si narokoval volný míč, cuknutí
+  // (lungeStep). Odsud se v obou případech nepohybuje — jen se nabufferuje, co chce.
+  // Dva pohyby se tak nikdy nepotkají a nemají se o co přetahovat.
+  if(ball.owner === p) return;
+  if(ball.claim === p && !ball.owner) return;
+  if(d < 2){ p.sf = 0; return; }
   var step = mv.sf*full, x0 = p.x, y0 = p.y;
-  if(d > 6 || carrying){ p.fx = mv.x; p.fy = mv.y; }
+  if(d > 6){ p.fx = mv.x; p.fy = mv.y; }
   p.x += mv.x*step; p.y += mv.y*step;
   clampField(p);
   // sf podle SKUTEČNĚ ušlé vzdálenosti — u mantinelu clampField krok uřízne
@@ -161,19 +150,25 @@ export function interceptPoint(p){ var s = interceptSolve(p); return { x:s.x, y:
 // Dosah zpracování míč NEZASTAVUJE, jen určuje, kdo si na něj sáhne. Stejný model konstantního
 // zpomalení jako interceptSolve, ale hráč smí na cuknutí až lungeSpeed % své rychlosti a stačí
 // mu doběhnout na CONTACT, ne na nulu. Neřešitelné = nenárokuje se (žádné teleporty).
+// Ne „nejdřív dosažitelný bod" — ten vždycky vyjde na plný strop a každé zpracování pak
+// vypadá stejně. Hledá se bod s NEJMENŠÍ potřebnou rychlostí: pro každý čas t spočítej,
+// jak rychle by tam hráč musel běžet, a vezmi minimum. Míč, který se sám kutálí k hráči,
+// tak vyjde skoro na nulu; míč, co proletí krajem dosahu, na tvrdé cuknutí.
 export function lungeSolve(p){
-  var sp = speedOf(p)*T.lungeSpeed/100;
+  var cap = speedOf(p)*T.lungeSpeed/100;
   var v0 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
-  if(v0 < 0.001){
+  if(v0 < 0.001){                       // ležící míč si prostě dojdi normální rychlostí
     var d0 = Math.max(0, dist(p, ball) - CONTACT);
-    return { ok:true, x:ball.x, y:ball.y, t: d0/Math.max(1, sp) };
+    return { ok: true, x:ball.x, y:ball.y, t: d0/Math.max(1, speedOf(p)), need: speedOf(p) };
   }
-  var tStop = v0/T.friction;
-  for(var t=0; t<=tStop+1.0; t+=1/60){
+  var tStop = v0/T.friction, tMax = tStop + 0.5;
+  var bestNeed = 1e9, bx = ball.x, by = ball.y, bt = tMax;
+  for(var t=1/60; t<=tMax; t+=1/60){
     var b = ballAtT(t, v0);
-    if(dist(p, b) <= sp*t + CONTACT) return { ok:true, x:b.x, y:b.y, t:t };
+    var need = Math.max(0, dist(p, b) - CONTACT)/t;
+    if(need < bestNeed){ bestNeed = need; bx = b.x; by = b.y; bt = t; }
   }
-  return { ok:false, x:ball.x, y:ball.y, t:1e9 };
+  return { ok: bestNeed <= cap, x:bx, y:by, t:bt, need:bestNeed };
 }
 // projde dráha míče vůbec dosahem zpracování toho hráče?
 export function ballPathHits(p){
@@ -213,10 +208,9 @@ export function lungeStep(dt){
   var p = ball.claim; if(!p || ball.owner) return;
   var dx = ball.claimX - p.x, dy = ball.claimY - p.y, d = Math.sqrt(dx*dx+dy*dy);
   var cap = speedOf(p)*T.lungeSpeed/100;
-  var need = 1e9;
   var s = lungeSolve(p);
-  if(s.ok && s.t > 1/120) need = d/s.t;
-  var sp = Math.min(cap, need);
+  // rychlost, jakou si zásah opravdu žádá — ne rutinně strop
+  var sp = Math.min(cap, s.need !== undefined ? s.need : cap);
   var step = Math.min(sp*dt, d), x0 = p.x, y0 = p.y;
   if(d > 0.001){
     p.x += dx/d*step; p.y += dy/d*step;
@@ -290,7 +284,7 @@ export function doPass(dx, dy, speed){
   var d = Math.sqrt(dx*dx+dy*dy); if(d < .001) return;
   var v = speed || T.passSpeed;            // AI zatím kope pořád naplno
   var carrier = ball.owner;
-  ball.attached = false; ball.held = false;      // přihrávka pouští cyklus, rychlost dá kop níž
+  ball.held = false;                             // přihrávka končí cyklus, rychlost dá kop níž
   ball.owner = null;
   // míč se odehrává z místa, kde reálně leží — nikam se neteleportuje
   ball.vx = dx/d*v; ball.vy = dy/d*v;

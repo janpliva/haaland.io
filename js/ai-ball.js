@@ -110,7 +110,7 @@ export function driveCarrier(p, dt){
     moveTo(p, ball.x, ball.y, speedOf(p), dt);
     return;
   }
-  // dokud míč nevisí na noze (čerstvě zpracovaný, po odrazu), doběhni si pro něj
-  if(!ball.attached){ moveTo(p, ball.x, ball.y, speedOf(p), dt); return; }
+  // moveTo držitele nehýbe (to dělá carryChase) — tady se jen nabufferuje směr k cíli plánu,
+  // který se použije jako směr předkopu při nejbližším kontaktu
   moveTo(p, p.plan.x, p.plan.y, speedOf(p), dt);
 }
