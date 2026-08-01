@@ -1,7 +1,7 @@
 // Tým bez míče: jeden na míč, ostatní hlídají na brankové straně a drží linii.
 import { T, FIELD_W, dirOf } from './config.js';
 import { S, E, ball, dist, clampField } from './state.js';
-import { attackY, speedOf, moveTo, chaserOf, nearestTo, interceptPoint } from './util.js';
+import { attackY, speedOf, moveTo, chaserOf, nearestTo, interceptPoint, perceivedBall } from './util.js';
 
 const lastMan = { b:null, r:null }, lastManT = { b:0, r:0 };   // poslední obránce, drží se 0,5 s
 
@@ -53,7 +53,15 @@ export function defend(list, dt){
     var r = list[k];
     if(r === S.ctrl || r.role === 'gk') continue;
     if(r === chaser){
-      if(!ball.owner || pressOn){ var ipd = interceptPoint(r); moveTo(r, ipd.x, ipd.y, speedOf(r), dt); }
+      // Presink na držitele je JEDINÉ místo, kde obránce sleduje soupeře snímek po snímku —
+      // a jediné, kterého se týká reakční čas: běží podle toho, co držitel dělal před
+      // defReact ms (perceivedBall). Volný míč se nezpožďuje (to není hlídání hráče, ale
+      // závod o balon), držící bod níž taky ne (to je tvar bloku) a odebrání v main.js
+      // pořád počítá se skutečnou polohou míče.
+      if(!ball.owner || pressOn){
+        var view = (ball.owner && ball.owner.team !== team) ? perceivedBall() : ball;
+        var ipd = interceptPoint(r, view); moveTo(r, ipd.x, ipd.y, speedOf(r), dt);
+      }
       // mimo dosah nevybíhá — čeká na spojnici míč–vlastní branka, blok se nerozbije
       else moveTo(r, hx, hy, speedOf(r)*0.9, dt);
       continue;

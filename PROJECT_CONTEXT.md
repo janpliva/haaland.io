@@ -135,13 +135,30 @@ excluded from both by `role === 'gk'` and are driven only by `playKeeper`.
   the holding spot stayed empty. With the fix a defender parks at 898 against a target of 900.
 - **Drift only near the ball.** Marker wobble is scaled by `1 − dist(ball, defender)/wobbleNear`,
   so defenders far from the ball stand still and hold the shape.
+- **Reaction time, on the man.** The presser is the only defender that tracks an opponent frame
+  by frame, and the only one `defReact` touches. He aims at the picture of the carrier he had
+  `defReact` ms ago, carried forward at the speed and heading he saw then: while the carrier
+  runs uniformly the estimate is exact and the target is bit-for-bit today's, and the moment
+  the carrier changes direction the presser stays committed to the old one for `defReact`.
+  Not delayed: shape-holding, the holding point, markers, keepers, loose-ball races, and the
+  steal — the tackle always uses the ball's real position. `defReact` 0 is the same code path
+  as before the feature, verified identical over six seeded matches.
+
+Why the delay is on the carrier and not on the ball: the ball at a dribbler's feet is a
+sawtooth — every touch re-kicks it, so its speed jumps once per cycle. A delayed observer
+cannot tell that re-kick from a change of direction, so delaying the ball's own state punishes
+a defender on a *straight* dribble too. Measured: with the ball delayed 220 ms, a carrier who
+simply ran diagonally past a defender, with no feint at all, got through 85.7 % of the time.
+With the delay on the carrier, the same run gets through 0 %.
 
 Consequence worth knowing: with `pressDist` at 900 a human who keeps the ball in his own half
 is never challenged at all. Measured 0:0 over 120 s of standing still. Walk the ball forward
 and the block engages — the waiting defender is simply run into.
 
 ### Going to the ball: intercept, and commit to one man
-`interceptSolve(p)` predicts where the ball will be. Ball motion is constant deceleration
+`interceptSolve(p, b)` predicts where the ball will be. The optional `b` is a *view* of the
+ball — position and velocity — and defaults to the live one; only the delayed press passes
+anything else, and it never fakes the player's own position.  Ball motion is constant deceleration
 `friction` along its velocity, so `s(t)` is analytic; the search steps `t` in 0.05 up to
 `tStop + 1.5` and returns the first point the player could reach, allowing him only
 `interceptEff` % of his top speed. If nothing is reachable it returns the resting point and a
@@ -419,6 +436,8 @@ updateClaim / lungeSolve /
   lungeActive / lungeStep      reception claim and lunge        util.js
 moveTo                         everyone not carrying/lunging    util.js
 interceptSolve / pickChasers   who goes for a loose ball        util.js
+histPush / histCarrier         short memory of the carrier      state.js
+perceivedBall                  what a pressing defender sees    util.js
 doPass                         releases the ball                util.js
 assignRoles / mateTarget       teammate lanes and spots         ai-off.js
 decide / driveCarrier          AI carrier plans and kicks       ai-ball.js
@@ -565,6 +584,7 @@ these values. They are hand-tuned by playing — do not change one without being
 | `lineGap` | 60 | 0–200 (5) | units | How far behind the deepest attacker the defensive line sits. |
 | `pressDist` | 900 | 200–2000 (20) | units | Ball must be within this of the defending goal before anyone presses it. |
 | `wobbleNear` | 600 | 100–1500 (20) | units | Distance from the ball at which a marker's drift fades to zero. |
+| `defReact` | 600 | 0–600 (10) | ms | How stale the pressing defender's picture of the ball carrier is. 0 = today's frame-perfect mirroring. |
 | `gkDepth` | 55 | 0–160 (5) | units | How far off his line the keeper stands. Positioning only — he saves with his body. |
 | `gkReaction` | 180 | 0–500 (10) | ms | Delay before the keeper reacts to a detected shot. |
 | `gkError` | 25 | 0–200 (5) | units | One-off random error on the sampled save point. |

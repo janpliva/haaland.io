@@ -1,6 +1,6 @@
 // Geometrie, „kdo je kdo" a náběh na míč. Vrstva nad state, pod AI.
 import { T, FIELD_W, PH, CONTACT, dirOf } from './config.js';
-import { S, E, ball, dist, clampField, hooks } from './state.js';
+import { S, E, ball, dist, clampField, hooks, histCarrier } from './state.js';
 
 export { dist, clampField };          // ať je zbytek kódu bere z jednoho místa
 
@@ -126,25 +126,56 @@ export function rollDist(v){ return v*v / (2*Math.max(1, T.friction)); }   // ka
 
 // ---- náběh na míč: kam se míč dokutálí a kde ho jde nejdřív zastihnout ----
 // míč zpomaluje konstantně o T.friction, takže dráha za čas t je analytická
-export function ballAtT(t, v0){
-  if(v0 < 0.001) return { x:ball.x, y:ball.y };
+// Nepovinné `b` je POHLED na míč (poloha + rychlost); bez něj se počítá z živého ball.
+// Slouží jen presinku se zpožděním — vlastní polohu hráče nikdo nezpožďuje.
+export function ballAtT(t, v0, b){
+  b = b || ball;
+  if(v0 < 0.001) return { x:b.x, y:b.y };
   var tStop = v0 / T.friction;
   var s = t < tStop ? v0*t - 0.5*T.friction*t*t : v0*v0/(2*T.friction);
-  return { x: ball.x + ball.vx/v0*s, y: ball.y + ball.vy/v0*s };
+  return { x: b.x + b.vx/v0*s, y: b.y + b.vy/v0*s };
 }
-export function interceptSolve(p){
-  var v0 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
-  if(v0 < 0.001) return { x:ball.x, y:ball.y, t: dist(p, ball)/Math.max(1, speedOf(p)) };
+export function interceptSolve(p, b){
+  b = b || ball;
+  var v0 = Math.sqrt(b.vx*b.vx + b.vy*b.vy);
+  if(v0 < 0.001) return { x:b.x, y:b.y, t: dist(p, b)/Math.max(1, speedOf(p)) };
   var tStop = v0 / T.friction, eff = T.interceptEff/100, sp = speedOf(p);
   for(var t=0; t<=tStop+1.5; t+=0.05){
-    var b = ballAtT(t, v0);
+    var q = ballAtT(t, v0, b);
     // hráč se neotočí okamžitě, takže nepočítá s plnou rychlostí
-    if(dist(p, b) <= sp*t*eff) return { x:b.x, y:b.y, t:t };
+    if(dist(p, q) <= sp*t*eff) return { x:q.x, y:q.y, t:t };
   }
-  var r = ballAtT(tStop, v0);                    // nedostižitelný → aspoň místo zastavení
+  var r = ballAtT(tStop, v0, b);                 // nedostižitelný → aspoň místo zastavení
   return { x:r.x, y:r.y, t: 1e6 + dist(p, r) };  // 1e6 = seřadí se až za dostižitelné
 }
-export function interceptPoint(p){ var s = interceptSolve(p); return { x:s.x, y:s.y }; }
+export function interceptPoint(p, b){ var s = interceptSolve(p, b); return { x:s.x, y:s.y }; }
+// Kam obránce míří, když presuje držitele. Zpožděné je POZOROVÁNÍ HRÁČE, ne poloha míče:
+// obránce si vezme držitele, jak ho viděl před defReact ms, a dopočítá si ho dopředu tehdejší
+// rychlostí. O kolik se takový odhad mine se skutečností, o tolik je vedle i cíl.
+//   běží pořád stejně  → odhad sedí, chyba nula, cíl je přesně ten dnešní
+//   změní směr         → obránce po celý defReact míří tam, kam držitel běžel PŘED kličkou
+// Míč se veze s tím obrázkem včetně natočení, takže dokud se klička nedostane přes zpoždění,
+// obránce si myslí, že mu míč pořád utíká na starou stranu. Odebrání (main.js) i nárok
+// pracují dál se skutečnou polohou — zpoždění je vjem, ne handicap na zákrok.
+// Míč sám se nezpožďuje záměrně, viz histCarrier ve state.js.
+export function perceivedBall(){
+  if(!(T.defReact > 0) || !ball.owner) return ball;
+  var h = histCarrier(T.defReact/1000), now = histCarrier(0);
+  if(!h.ok || !now.ok) return ball;                   // bez použitelné paměti se nic nepředstírá
+  var o = ball.owner, d = h.age;                      // skutečné stáří obrázku, ne požadované
+  var px = h.x + h.vx*d, py = h.y + h.vy*d;           // kde by držitel byl, kdyby nic nezměnil
+  // natočení ze skutečného směru běhu do toho vnímaného; míč se veze s celým obrázkem
+  var c = 1, s = 0;
+  var lo = Math.sqrt(h.vx*h.vx + h.vy*h.vy), ln = Math.sqrt(now.vx*now.vx + now.vy*now.vy);
+  if(lo > 1e-6 && ln > 1e-6){
+    var ux = h.vx/lo, uy = h.vy/lo, wx = now.vx/ln, wy = now.vy/ln;
+    c = ux*wx + uy*wy; s = uy*wx - ux*wy;
+  }
+  var rx = ball.x - o.x, ry = ball.y - o.y;
+  var q = { x: px + (c*rx - s*ry), y: py + (s*rx + c*ry),
+            vx: c*ball.vx - s*ball.vy, vy: s*ball.vx + c*ball.vy };
+  return isFinite(q.x) && isFinite(q.y) && isFinite(q.vx) && isFinite(q.vy) ? q : ball;
+}
 
 // ---- nárok a cuknutí pro zpracování ----
 // Dosah zpracování míč NEZASTAVUJE, jen určuje, kdo si na něj sáhne. Stejný model konstantního

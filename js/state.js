@@ -33,6 +33,62 @@ export const E = { blue: [], red: [], all: [], gkB: null, gkR: null };
 // import jednosměrný, util si sem funkci zapíše při svém načtení.
 export const hooks = { pickChasers: function(){} };
 
+// ---- krátká paměť držitele míče ----
+// Presující obránce sleduje HRÁČE s míčem a vidí ho se zpožděním defReact. Míč sám se
+// nezpožďuje nikdy: jeho pohyb je pilovitý (každý dotek ho znovu kopne, viz startKick), a
+// zpožděný pozorovatel neumí odlišit takový kop od změny směru — změřeno, obránce pak
+// prohrával i s hráčem, který jen běžel šikmo kolem něj. Běh držitele je naopak mezi doteky
+// rovnoměrný, takže se dá dopočítat dopředu a zpoždění nestojí NIC, dokud držitel běží
+// pořád stejně. Chyba vznikne přesně tehdy, když směr změní — a to je ta klička.
+//
+// Vzorek se ukládá JEDNOU za snímek na začátku kroku, ještě než se čímkoli hne, takže
+// nejnovější vzorek odpovídá tomu, co v témže snímku čte AI. Kapacita se počítá v čase,
+// ne ve snímcích: 256 vzorků pokryje i 120Hz displej (2,1 s historie).
+const HN = 256;
+const hT = new Float64Array(HN), hX = new Float64Array(HN), hY = new Float64Array(HN),
+      hVX = new Float64Array(HN), hVY = new Float64Array(HN);
+const hOwn = new Array(HN);         // kdo byl v tom snímku držitel — jiný držitel = jiná paměť
+var hN = 0, hI = 0;                 // kolik vzorků paměť drží a kam se zapíše další
+
+export function histClear(){ hN = 0; hI = 0; for(var i=0;i<HN;i++) hOwn[i] = null; }
+export function histPush(){
+  var o = ball.owner, vx = 0, vy = 0;
+  // Rychlost držitele se NEODHADUJE z rozdílu poloh — carryChase ho v tomhle cyklu veze
+  // přesně rychlostí chaseV ve směru fx,fy, takže se dá vzít rovnou. Rozdíl dvou snímků
+  // by při kolísavém dt šuměl a cíl obránce by cukal (naměřeno 17 jednotek na snímek).
+  if(o && !ball.held){ vx = o.fx * ball.chaseV; vy = o.fy * ball.chaseV; }
+  hT[hI] = S.time; hOwn[hI] = o;
+  hX[hI] = o ? o.x : ball.x; hY[hI] = o ? o.y : ball.y;
+  hVX[hI] = vx; hVY[hI] = vy;
+  hI = (hI + 1) % HN;
+  if(hN < HN) hN++;
+}
+// Kde byl držitel před `delay` sekundami a jak tehdy běžel. Mezi vzorky se interpoluje
+// lineárně — kdyby se skákalo po celých snímcích, cíl obránce by se při kolísavém dt trhal.
+// Vrací i `age`: jak starý ten obrázek doopravdy je. Když paměť tak daleko nesahá nebo v tom
+// okně držel míč někdo jiný, vezme se nejstarší vzorek TOHOTO držitele a age je kratší —
+// zpoždění tak po každé změně držení plynule najíždí od nuly, místo aby se přepínalo.
+// ok = false jen tehdy, když o tomhle držiteli není zatím vůbec nic.
+export function histCarrier(delay){
+  var o = ball.owner;
+  if(!o || hN === 0) return { ok:false };
+  var want = S.time - delay, k = (hI - 1 + HN) % HN;
+  if(hOwn[k] !== o) return { ok:false };
+  if(want >= hT[k]) return { ok:true, age:delay, x:hX[k], y:hY[k], vx:hVX[k], vy:hVY[k] };
+  for(var s=1; s<hN; s++){
+    var prev = (k - 1 + HN) % HN;
+    if(hOwn[prev] !== o) break;                     // dál už míč držel někdo jiný
+    if(hT[prev] <= want){
+      var span = hT[k] - hT[prev], w = span > 1e-9 ? (want - hT[prev])/span : 0;
+      return { ok:true, age:delay,
+               x: hX[prev] + (hX[k]-hX[prev])*w,    y: hY[prev] + (hY[k]-hY[prev])*w,
+               vx: hVX[prev] + (hVX[k]-hVX[prev])*w, vy: hVY[prev] + (hVY[k]-hVY[prev])*w };
+    }
+    k = prev;
+  }
+  return { ok:true, age: S.time - hT[k], x:hX[k], y:hY[k], vx:hVX[k], vy:hVY[k] };
+}
+
 export function resize(){
   // nulový viewport by udělal scale=0 a FIELD_H=NaN, ze kterého se hra nevzpamatuje
   S.cssW = window.innerWidth || 1; S.cssH = window.innerHeight || 1;
@@ -95,6 +151,7 @@ export function reset(kickTeam){
   ball.y = starter.y + starter.fy*CONTACT;
   S.lastTeam = kickTeam;
   S.ctrl = E.blue[0]; S.lockOut = 0; S.lockedPlayer = null;
+  histClear();                // po přestavení pozic je stará paměť lež, ne zpoždění
   touch.fire = null;          // ať nabitá přihrávka nepřeteče do dalšího pokusu
   hooks.pickChasers();
 }

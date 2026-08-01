@@ -1,6 +1,7 @@
 // Simulační krok, smyčka a start.
 import { T, FIELD_W, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
-import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField } from './state.js';
+import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField,
+         histPush } from './state.js';
 import { foesOf, stealR, inOwnBox, bufferInput, updateClaim, lungeStep, lungeActive,
          carryChase, startKick, holdBall, doPass, pickChasers, rollDist } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
@@ -15,6 +16,10 @@ import { buildPanel, clearStore } from './ui.js';
 function step(dt){
   S.time += dt;
   if(S.lockOut > 0) S.lockOut -= dt;
+
+  // Paměť držitele se plní tady, ještě než se čímkoli hne — nejnovější vzorek pak odpovídá
+  // tomu, co v tomhle snímku čte AI. Čte z ní jen presující obránce (perceivedBall).
+  histPush();
 
   // Nárok se řeší jako první: pohybové bloky níž se ptají lungeActive(), jestli mají
   // hráče pustit ke slovu, takže potřebují čerstvý výsledek.
