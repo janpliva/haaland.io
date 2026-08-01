@@ -1,8 +1,8 @@
 // Simulační krok, smyčka a start.
 import { T, FIELD_W, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
 import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField } from './state.js';
-import { foesOf, stealR, inOwnBox, bufferInput, updateClaim, lungeStep, carryChase,
-         startKick, holdBall, doPass, pickChasers, rollDist } from './util.js';
+import { foesOf, stealR, inOwnBox, bufferInput, updateClaim, lungeStep, lungeActive,
+         carryChase, startKick, holdBall, doPass, pickChasers, rollDist } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
 import { attack } from './ai-off.js';
 import { defend } from './ai-def.js';
@@ -15,6 +15,10 @@ import { buildPanel, clearStore } from './ui.js';
 function step(dt){
   S.time += dt;
   if(S.lockOut > 0) S.lockOut -= dt;
+
+  // Nárok se řeší jako první: pohybové bloky níž se ptají lungeActive(), jestli mají
+  // hráče pustit ke slovu, takže potřebují čerstvý výsledek.
+  updateClaim();
 
   // --- ovládaný hráč ---
   var joyR = T.joyR, thresh = joyR * (T.passThresh/100);
@@ -33,8 +37,9 @@ function step(dt){
   // vstup se nabufferuje; v cyklu doteku se běží po touchDir, ne po sticku — proto zvednutý
   // prst hráče uprostřed cyklu nezastaví a dotek (a s ním nachystaná přihrávka) vždycky přijde
   var mv = bufferInput(S.ctrl, sx, sy, stickSF);
-  // s míčem ho vede doběh a při zpracování cuknutí — stick se v obou případech jen bufferuje
-  var driven = (ball.owner === S.ctrl) || (ball.claim === S.ctrl && !ball.owner);
+  // s míčem ho vede doběh, a při zpracování cuknutí — ale to jen když po něm opravdu něco
+  // chce. Když si míč jede rovnou na něj, řídí dál stickem a nic ho nemrazí.
+  var driven = (ball.owner === S.ctrl) || lungeActive(S.ctrl);
   if(mv.sf > 0 && !driven){
     var sp = T.playerSpeed * mv.sf, x0 = S.ctrl.x, y0 = S.ctrl.y;
     S.ctrl.fx = mv.x; S.ctrl.fy = mv.y;
@@ -68,10 +73,9 @@ function step(dt){
   if(attTeam === 'b'){ attack(E.blue, carrier, dt); defend(E.red, dt); }
   else               { attack(E.red, carrier, dt);  defend(E.blue, dt); }
 
-  // --- nárok na volný míč a cuknutí po něm ---
+  // --- cuknutí po narokovaném míči ---
   // Kdo má míč na dráze skrz svůj dosah zpracování a stihne ho, ten si ho narokuje a vrhne
-  // se na místo, KDE MÍČ BUDE. Jeho běžný pohyb je po tu dobu vypnutý (viz moveTo).
-  updateClaim();
+  // se na místo, KDE MÍČ BUDE — ale jen pokud se kvůli tomu vůbec musí hnout (viz moveTo).
   lungeStep(dt);
 
   // --- doběh držitele: běží automaticky NA MÍČ, ne po uloženém vektoru ---

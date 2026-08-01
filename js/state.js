@@ -18,6 +18,7 @@ export const ball = { x:0, y:0, vx:0, vy:0, owner:null, gained:0,
                       chaseV:0,                    // rychlost doběhu držitele pro tenhle cyklus
                       peakGap:0,                   // odvozený vrchol mezery — jen na kontrolu
                       claim:null, claimX:0, claimY:0,   // kdo si volný míč narokoval a kam se vrhá
+                      lungeNeed:0,                 // jakou rychlost si to cuknutí právě žádá
                       pending:null,                // nachystaná přihrávka, odehraje se až při doteku
                       chaser:{ b:null, r:null },   // kdo si za míčem jde; mění se jen při změně držení
                       chaseDir:{ x:0, y:0 } };     // směr míče při posledním výběru, na odhalení odrazu

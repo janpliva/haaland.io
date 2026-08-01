@@ -93,11 +93,11 @@ export function moveTo(p, tx, ty, sp, dt){
   var full = speedOf(p)*dt;
   var reqSF = full > 0 ? Math.min(1, Math.min(sp*dt, d)/full) : 0;
   var mv = bufferInput(p, d > 0.001 ? dx/d : p.fx, d > 0.001 ? dy/d : p.fy, reqSF);
-  // Držitele míče hýbe doběh (carryChase), toho, kdo si narokoval volný míč, cuknutí
-  // (lungeStep). Odsud se v obou případech nepohybuje — jen se nabufferuje, co chce.
-  // Dva pohyby se tak nikdy nepotkají a nemají se o co přetahovat.
+  // Držitele míče hýbe doběh (carryChase), a toho, kdo si narokoval volný míč, cuknutí —
+  // ale jen když po něm cuknutí opravdu něco chce. Jinak se hýbe normálně a míč k němu
+  // dojede sám. Dva pohyby se tak nikdy nepotkají a nemají se o co přetahovat.
   if(ball.owner === p) return;
-  if(ball.claim === p && !ball.owner) return;
+  if(lungeActive(p)) return;
   if(d < 2){ p.sf = 0; return; }
   var step = mv.sf*full, x0 = p.x, y0 = p.y;
   if(d > 6){ p.fx = mv.x; p.fy = mv.y; }
@@ -150,10 +150,21 @@ export function interceptPoint(p){ var s = interceptSolve(p); return { x:s.x, y:
 // Dosah zpracování míč NEZASTAVUJE, jen určuje, kdo si na něj sáhne. Stejný model konstantního
 // zpomalení jako interceptSolve, ale hráč smí na cuknutí až lungeSpeed % své rychlosti a stačí
 // mu doběhnout na CONTACT, ne na nulu. Neřešitelné = nenárokuje se (žádné teleporty).
-// Ne „nejdřív dosažitelný bod" — ten vždycky vyjde na plný strop a každé zpracování pak
-// vypadá stejně. Hledá se bod s NEJMENŠÍ potřebnou rychlostí: pro každý čas t spočítej,
-// jak rychle by tam hráč musel běžet, a vezmi minimum. Míč, který se sám kutálí k hráči,
-// tak vyjde skoro na nulu; míč, co proletí krajem dosahu, na tvrdé cuknutí.
+// Ne „nejdřív dosažitelný bod" — ten vyjde vždycky přesně na strop a každé zpracování pak
+// vypadá stejně. Hledá se bod, do kterého hráč dorazí PRÁVĚ VE CHVÍLI, kdy tam je míč, a to
+// nejmenší možnou rychlostí: need(t) = vzdálenost k míči v čase t / t, minimum přes t.
+// Vzdálenost se NEZMENŠUJE o CONTACT: s tím vycházela need = 0 pokaždé, když míč tak jako tak
+// proletí kolem těla, hráč se vůbec nerozeběhl a mezi nárokem a dotykem stál — přesně ten
+// zásek, kvůli kterému tahle verze vznikla. Přes celou vzdálenost je need nulová jen tehdy,
+// když hráč na místě setkání opravdu už stojí.
+// Cuknutí PŘEBÍRÁ řízení, jen když opravdu potřebuje hráčem hnout. Když míč tak jako tak
+// míří na místo, kde hráč stojí, potřebná rychlost vyjde nula — a to není důvod hráče
+// zmrazit. Pod touhle mezí si hráč řídí sám (člověk stickem, AI svým chováním) a míč k němu
+// prostě dojede; to byl přesně ten zásek, kdy zpracování hráče na desetiny sekundy vyplo.
+export const LUNGE_TAKEOVER = 0.15;     // podíl normální rychlosti, od kterého cuknutí řídí
+export function lungeActive(p){
+  return ball.claim === p && !ball.owner && (ball.lungeNeed || 0) > LUNGE_TAKEOVER*speedOf(p);
+}
 export function lungeSolve(p){
   var cap = speedOf(p)*T.lungeSpeed/100;
   var v0 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
@@ -201,15 +212,20 @@ export function updateClaim(){
   else if(cur) ball.claim = cur;
   else if(best){ ball.claim = best; ball.claimX = bx; ball.claimY = by; }
   else ball.claim = null;
+  // kolik cuknutí právě potřebuje — podle toho se pozná, jestli má přebrat řízení
+  ball.lungeNeed = ball.claim ? lungeSolve(ball.claim).need : 0;
 }
 // Cuknutí: na spočítaný bod, rychlostí, jakou řešení vyžaduje, se stropem lungeSpeed.
 // Bod se přepočítává každý snímek, takže jak míč zpomaluje, cíl se plynule posouvá.
 export function lungeStep(dt){
   var p = ball.claim; if(!p || ball.owner) return;
-  var dx = ball.claimX - p.x, dy = ball.claimY - p.y, d = Math.sqrt(dx*dx+dy*dy);
-  var cap = speedOf(p)*T.lungeSpeed/100;
+  if(!lungeActive(p)) return;             // nic po něm nechceme → řídí se sám, nemrazíme ho
+  // bod i rychlost se počítají znovu každý snímek, aby se sledovalo brzdění míče
   var s = lungeSolve(p);
-  // rychlost, jakou si zásah opravdu žádá — ne rutinně strop
+  ball.claimX = s.x; ball.claimY = s.y;
+  var dx = s.x - p.x, dy = s.y - p.y, d = Math.sqrt(dx*dx+dy*dy);
+  var cap = speedOf(p)*T.lungeSpeed/100;
+  // rychlost, při které dorazí PRÁVĚ s míčem, se stropem — ne rutinně strop
   var sp = Math.min(cap, s.need !== undefined ? s.need : cap);
   var step = Math.min(sp*dt, d), x0 = p.x, y0 = p.y;
   if(d > 0.001){
