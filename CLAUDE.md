@@ -3,7 +3,8 @@
 Working rules for this repo. Read [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) first — it maps
 the code and lists every tunable with its default.
 
-Solo hobby prototype. One file, `index.html`. No production, no users, no CI.
+Solo hobby prototype. ES modules in `js/`, loaded straight by the browser. No production,
+no users, no CI.
 
 ## Git
 
@@ -33,9 +34,15 @@ js/util.js    geometry, who-is-who, intercept, doPass
 js/ai-off.js  assignRoles, mateTarget, attack     js/ai-def.js  defend
 js/ai-ball.js decide, driveCarrier                js/keeper.js  playKeeper, parry, keeperPlan
 js/match.js   score, goal, overlay               js/input.js   joystick
-js/render.js  draw                               js/ui.js      panel + storage
+js/render.js  draw                               js/ui.js      gear panel
 js/main.js    step, frame, boot
 ```
+
+`js/util.js` also owns the dribble and reception: `bufferInput`, `startKick`/`holdBall`,
+`carryChase`, and `updateClaim`/`lungeSolve`/`lungeActive`/`lungeStep`. `moveTo` returns
+early for the ball owner and for an actively lunging player, because those two are moved by
+`carryChase` and `lungeStep` instead — that early return is what keeps the two movement
+systems from fighting.
 
 - **Imports must stay one-way**: config → state → util → ai/keeper → match → input →
   render/ui → main. No cycles. If a cycle appears, move the shared piece down a layer.
@@ -51,13 +58,13 @@ js/main.js    step, frame, boot
 - `DEFAULTS` is a deep copy of `T` at load, and the "Vrátit výchozí hodnoty" button restores
   it. That relationship must keep working.
 
-## Do not remove the storage layer
+## Settings are never persisted
 
-- `writeStore`/`loadStore` in `js/ui.js` try `window.storage` first and fall back to
-  `localStorage`. Keep both paths and the try/catch around them, even though
-  `window.storage` is undefined on GitHub Pages.
-- Keep `applyLoaded`'s filter (only numeric keys present in `DEFAULTS`) — it is what stops a
-  stale saved payload from injecting fields.
+- `T` is initialised from `TUNABLES` at every boot. There is no storage layer and nothing is
+  written — do not add one back.
+- `clearStore()` in `js/ui.js` deletes the old `fbproto_tuning_v1` payload at boot. Keep it.
+- Why: the old layer let a saved value on the phone silently override a new default in code,
+  which is indistinguishable from the change not working.
 
 ## You cannot feel the game
 
@@ -75,9 +82,8 @@ This is the important one. You have never played it and never will.
 - **Adding a tunable is one line** in the `TUNABLES` list in `js/config.js`. The panel rows,
   `T`'s initial value and `DEFAULTS` are all generated from it, and the group headings come
   from the `group` field. There is no positional id mapping to get wrong any more.
-- Changing a default in `T` does **not** reach a device that has already saved settings —
-  `applyLoaded` prefers the stored value. Whenever you change a default, say in your report
-  that the human has to press "Vrátit výchozí hodnoty" on the phone to see it.
+- A changed default reaches the phone on the next reload — nothing is stored, so there is no
+  "press Vrátit výchozí hodnoty to see it" caveat any more.
 
 ## Ambiguity about game design → ask
 

@@ -1,7 +1,7 @@
 # PROJECT_CONTEXT
 
-Written for a session with no memory of this project. Everything below was read out of
-`index.html` unless marked otherwise.
+Written for a session with no memory of this project. Everything below was read out of the
+code in `js/` unless marked otherwise.
 
 ## 1. What this is
 
@@ -17,8 +17,9 @@ It is a **feel test for one mechanic**, not a game. The question it exists to an
 Everything else — teams, AI, goals — exists only to make that gesture testable under
 pressure.
 
-The ball is physically simulated and rides further ahead the faster you run. Inside the
-circle around you it obeys you; a sprint pushes it outside that circle, where it does not.
+The ball is always physically simulated and never attached to anyone. Dribbling is a cycle of
+real kicks: you knock it ahead, it rolls under friction, and your player automatically runs at
+it until his body reaches it — and that contact is the only moment your input reaches the ball.
 
 There are goals at both ends, a keeper each, and a scoreline; first to `targetGoals` wins.
 A shot is just a pass — there is no separate shooting gesture, deliberately. Both teams play
@@ -43,8 +44,8 @@ the control has to go where the ball is. The hysteresis is what stops the body u
 thumb swapping mid-run.
 
 ### Control switches only at the moment of reception
-`doPass()` sets `ctrl = carrier` (`index.html:260`), and `step()` reassigns
-`ctrl = ball.owner` only when a blue player actually has the ball (`index.html:470`).
+`doPass()` sets `ctrl = carrier`, and `step()` reassigns `ctrl = ball.owner` only when a
+blue player actually has the ball.
 While the ball is in flight, you still drive the player who passed it.
 
 Why: the pass is a single continuous thumb gesture. If control jumped to the receiver
@@ -53,7 +54,7 @@ the pass direction. Keeping control on the passer also means your run *after* pa
 still yours, which is the point of a passing game.
 
 ### Charge outside the ring, pass on release
-Inner ring `joyR` (62 css px). Outer ring `joyR * passThresh/100` (122% → ~75.6 css px).
+Inner ring `joyR` (70 css px). Outer ring `joyR * passThresh/100` (122% → ~85.4 css px).
 Movement speed ramps linearly with distance and saturates at `joyR`, so everything past the
 inner ring is full sprint and the joystick keeps steering normally while outside the outer
 ring too.
@@ -62,17 +63,17 @@ The pass is a two-stage gesture:
 
 1. **Charge** — drag the thumb past the outer ring. Nothing fires. With the ball, a dashed
    yellow arrow shows where the pass would go, the outer ring goes solid, and the knob gets
-   a white outline (`index.html:386` for the state, the ring and knob in `draw`).
+   a white outline.
 2. **Release** — lift the thumb while still outside the ring and the ball goes in the
-   direction the thumb was in **at the moment of release** (`index.html:216`). Not the
+   direction the thumb was in **at the moment of release**. Not the
    direction you first crossed in: you can exit right, travel around the outside to the
    left, release, and the pass goes left.
 
 **Weight comes from distance past the ring.** `passPower(d)` maps `(d − threshold) /
 passRange` to 0…1, and `passSpeedFor()` maps that onto `passMin`…`passSpeed`. Releasing on
 the ring plays the softest ball; `passRange` css px beyond it plays the hardest. Measured
-at the defaults (threshold 85.4, range 120, min 40 %, max 660): on the ring 273, +30 px 336,
-+60 px 459, +120 px 659, +200 px 664 — floor, slope and ceiling all behave.
+when `passSpeed` was 660: on the ring 273, +30 px 336, +60 px 459, +120 px 659, +200 px 664 —
+floor, slope and ceiling all behave. `passSpeed` is 800 now, so the absolute numbers scale.
 
 **The aiming line is a fraction of the real distance.** It is drawn from the ball, and its
 length is `rollDist(v) * aimLen/100`, where `rollDist(v) = v² / (2 · friction)` is how far the
@@ -93,14 +94,14 @@ signal that you are outside it — that feedback is load-bearing, not decoration
 
 Firing is deferred to `step()` through `touch.fire` rather than done in the event handler,
 so all game mutation stays in the simulation and nothing fires while the game is paused.
-`reset()` clears it so a charge cannot survive a turnover.
+`reset()` clears it so a charge cannot survive a goal.
 
 ### Contact with the ball takes it — both directions
 Checked every frame against the **ball**, not the carrier, and regardless of who owns it:
-`dist(opponent, ball) < stealR(opponent)`, which is `PH + ballR` for outfielders and
-`gkReach` for keepers (a keeper reaches further because it dives, and because a keeper that
-cannot take the ball off a dribbler is not a keeper — see below). This applies even while
-the ball sits at your foot: there is no shielding.
+`dist(opponent, ball) < stealR(opponent)`, which is `PH + tackleR` for everyone including
+keepers. This applies even while the ball sits at your foot: there is no shielding. Because
+the check is against the ball, a big touch is genuinely riskier than a small one — that is
+the intended cost of `touchPush`.
 
 `STEAL_LOCK` (0.5 s) stops the ball ping-ponging: whoever just lost it cannot take it back
 for half a second. `doPass` uses the same `lockedPlayer`/`lockOut` pair with 0.32 s.
@@ -182,18 +183,12 @@ into a scrum. `nearestTo` skips keepers and skips `lockedPlayer` during `lockOut
 chases a ball they just played. If the designated chaser is `ctrl`, no AI player is sent —
 while defending that is always the case, so pressing the ball is the human's job.
 
-`driveCarrier()` runs for any AI ball carrier. Before moving it does two things that keep
-the ball attached:
-
-- **If the ball is outside its control zone, it fetches the ball** instead of continuing to
-  the goal. Without this the AI ran off toward an abstract target and simply left the ball.
-- **It carries at `carrySpeed(p)`**, the fraction of top speed at which the ball still fits
-  inside the zone: `(pickup − CONTACT − 2) / dribbleKick`, floored at 0.15. Since the lead is
-  `CONTACT + dribbleKick * sf`, running flat out with a small zone pushes the ball straight
-  out of it — which is exactly what made AI dribbling look chaotic.
-
-Measured after the fix: the nearest opponent sat 43–51 units from the ball for 32 consecutive
-samples while dribbling, against a predicted equilibrium of `24 + 25 = 49` and a zone of 55.
+`driveCarrier()` runs for any AI ball carrier, and it **does not move him** — `moveTo` returns
+early for the ball owner, because the automatic chase in `carryChase` owns that. What
+`driveCarrier` does is decide a plan, queue kicks onto `ball.pending`, and let `moveTo` buffer
+the direction toward its plan target. That buffered direction is what the next contact uses as
+the kick direction, so the AI dribbles by aiming its touches, exactly like the human aims his
+with the stick. One code path, both teams.
 
 It re-decides every 0.22–0.44 s via `decide()`:
 
@@ -213,9 +208,9 @@ is legitimate. The sidestep in the dribble target is hysteretic (`p.side`, flips
 defender is 60 units clear on the other side); without that it swung 360 units whenever a
 defender crossed, which whipped the carrier's facing and threw the ball off its foot.
 
-Note that `ballFollow` applies to **both** teams — there is one steering path. What differed
-between the teams was the trap distance (`pickupMate` 30 vs `foePickup` 55), which is why the
-uncapped correction looked like an AI-only problem.
+Both teams run the same touch cycle and the same claim, so an apparent AI-only quirk is
+almost always a tuning difference (`pickupMate` vs `foePickup`) or an exposure difference —
+the AI receives far more often than you do, so you see its receptions more.
 
 ### Finishing: box runs, crosses, solo runs
 The AI used to run to the byline and stall. Rather than a scripted-play engine (a
@@ -306,48 +301,86 @@ hazard.
 Reaching `targetGoals` sets `matchOver`, which stops the auto-restart in `frame()` and shows
 the overlay; the intro text is stashed in `INTRO` at load and restored by `newMatch()`.
 
-### The ball is physical; the circle is a control zone, not a possession flag
-The ball is never glued to a player. It always carries velocity, friction and wall bounces
-(`index.html:443`). Three rules replace the old glue:
+### The dribble is a physical touch cycle with an automatic chase
+The ball is never attached to anyone and is never driven by a formula. It always carries
+velocity, friction and wall bounces. A dribble is a repeating cycle of real kicks:
 
-- **The correction is capped** at `speedOf(owner) * 1.5`. Without a cap, `error × ballFollow`
-  is unbounded: an AI trapping a pass can be `foePickup` (55) from the ball with its facing
-  pointing elsewhere, giving an error near 79 units and a correction of ~1580 units/s. The
-  ball shot past the player, left the control zone, the AI turned back for it, and the cycle
-  repeated — which is what "the ball bounces around the AI" was. The cap only bites on large
-  errors, so a normal carry is unchanged.
-- **Control** (`index.html:474`) — while the ball is within `pickupMate` of its owner, the
-  owner steers it. Each frame the ball's velocity is set to
-  `facing * playerSpeed * sf + (target − ball) * ballFollow`, where `sf` is the joystick's
-  speed fraction and `target = owner + facing * (CONTACT + dribbleKick * sf)`. This is a
-  first-order pursuit: the ball rides at `24 + dribbleKick * sf` units ahead and swings
-  around with you when you turn, so inside the zone the ball obeys much like the old glue,
-  just with lag. Standing still puts the target at your foot.
-- **No control outside the zone** — past `pickupMate` the steering term simply stops
-  applying and the ball is free-rolling physics. At full stick the target (`24 +
-  dribbleKick`) sits outside the zone, so a sprint pushes the ball out of your own control
-  zone and a direction change leaves it behind. Slow movement keeps the target inside the
-  zone and therefore keeps full control. `dribbleKick` sets where that crossover falls:
-  control is lost above `sf = (pickupMate − 24) / dribbleKick`.
-- **Possession** (`index.html:458`) — deliberately *not* tied to the zone. The owner keeps
-  the ball even when it is far away; it changes hands only when another blue has it inside
-  their own zone **and** is closer to it than the owner, or on a pass, or on a turnover.
-  Ownership changes stop the ball dead (the trap).
+- **Contact** is `dist(carrier, ball) <= CONTACT`. That is the only moment input reaches the
+  ball, and the only place a loose ball is stopped. Reaching it is a distance outcome, not a
+  timer.
+- **At contact**, in order: fire a queued pass if there is one; otherwise read the buffered
+  stick (direction `d`, magnitude `m`), set the carrier's speed for this cycle to
+  `v = speedOf(carrier) * m`, and kick the ball with `ball.v = d * (v + touchPush * m)`. If
+  `m` is 0 the carrier stops and the ball stays where it lies at his feet; he keeps it, and a
+  new cycle starts only when the stick moves again.
+- **Between contacts** the ball is ordinary physics, and the carrier **runs automatically at
+  the ball** at speed `v`, recomputed every frame. Not along a stored vector — at the ball —
+  so a wall bounce or a deflection is followed rather than lost. The stick is buffered only;
+  `chaseSteer` (0 by default) is the escape hatch that blends it back into the run direction.
 
-Why control and possession are separate: an earlier version broke possession as soon as the
-ball left the zone. Because a sprint puts the ball outside the zone by design, that made the
-ball unpassable while sprinting (`doPass` requires `ball.owner === ctrl`) and made every
-teammate abandon their lane to chase a ball you were still dribbling. Keeping possession
-sticky means losing the ball is decided by someone else reaching it, which is what "the ball
-got away from me" should mean.
+**Why it converges, on paper.** At the kick the ball travels `v + touchPush*m` against the
+carrier's `v`, so the relative speed is `touchPush*m` under a relative deceleration of
+`friction`. Relative displacement is `s(t) = touchPush*m*t − friction*t²/2`, giving
 
-Why pursuit rather than discrete kicks: the ball has to obey direction changes at walking
-pace. A pure impulse model — kick forward, let it roll — cannot do that, because a rolling
-ball keeps its old velocity through your turn. That version was tested and was
-uncontrollable.
+```
+peak gap   = (touchPush*m)² / (2*friction)
+cycle time = 2*touchPush*m / friction
+```
+
+This holds while the ball is still rolling for the whole cycle, which is exactly
+`touchPush <= speedOf`. Above that the ball stops early and the carrier walks in the
+remainder, so the cycle is longer than the formula but still finite. `main.js` carries an
+assertion guard: if the gap ever exceeds twice the derived peak it is counted on `S.gapWarn`
+and logged to `S.gapWarnLog` with the state that produced it. Nothing is snapped back — the
+point is to find out, not to hide it.
+
+**Possession is never lost to distance**, only to an opponent's steal check against the
+ball's actual position. Being far from the ball mid-cycle is the intended risk of a big
+touch.
+
+Two earlier attempts at a physical cycle failed (`63c67c1`, `457c95b`) for one specific
+reason: the carrier ran along a *locked stick vector* while the ball flew on its own, so the
+two diverged and the ball ended hundreds of units away. The chase must target the ball. Do
+not reintroduce a locked movement vector.
+
+Before this there was a scripted cycle (`c4816b9`) that drove the ball with
+`carrier + touchDir * maxLead * sin(pi*progress)` over a fixed duration in ms. It was
+replaced because the ball visibly bulged out and back on a timer instead of being knocked.
+
+### Reception: the pickup radius claims the ball, it does not stop it
+A loose ball crossing a pickup radius does not slow, stop or bend. The radius only decides
+who is going to collect it.
+
+- **Claim.** Each frame, for a loose ball, every eligible player whose pickup radius the
+  ball's *path* passes through gets an intercept solved against the same constant-deceleration
+  model as `interceptSolve`, allowed up to `speedOf(p) * lungeSpeed/100` and only needing to
+  close to `CONTACT`. The earliest solvable claims it. One code path for both teams, so an
+  opponent standing in a passing lane intercepts by exactly the same rule. A claim transfers
+  to anyone who gets there at least 0.05 s sooner; the threshold stops it flapping.
+- **Lunge.** The claimed player moves to the solved point at the speed the interception
+  requires, capped, recomputed every frame so the target slides as the ball decelerates.
+- **The lunge only takes over movement when it needs to** — while the solved requirement
+  exceeds `LUNGE_TAKEOVER` (15%) of normal speed. Below that the player keeps his own
+  movement and the ball simply arrives. This matters: the solver returns *zero* required
+  speed whenever the ball's path already passes within body contact of where the player
+  stands, and an earlier version suppressed him for the whole claim regardless, which froze
+  receivers for a median 183 ms and up to 717 ms. Standing still while a ball rolls onto your
+  foot is correct; being unable to do anything else is not.
+- **Contact takes the ball** — any eligible player within `CONTACT`, not only the claimer, so
+  a body in the way collects it.
+
+### Passes are queued and fire at the next contact
+Because the ball is usually away from the foot, a pass cannot fire from where it lies.
+Releasing the joystick past the threshold stores direction and power on `ball.pending`;
+the next contact plays it, from the ball's position, in the **stored** direction — not where
+the stick points at that later moment. Releasing again replaces it, a change of possession
+clears it, and it expires after `passQueueMax`. The armed pass draws as a green dotted line
+from the ball so it is visible from release until it fires. AI kicks go through the same
+queue. Lifting the thumb does not stop the carrier mid-cycle: he is on the automatic chase,
+so the contact always arrives.
 
 ### Lane-based teammate runs
-`assignRoles()` (`index.html:272`) sorts non-carrier teammates by current x and gives each
+`assignRoles()` sorts non-carrier teammates by current x and gives each
 one a lane `(k + 0.5) / n` across the field width, alternating `band`: even index = forward
 run (`prefD` 330), odd = support (`prefD` 200). Roles are recomputed every 2.2 s or when the
 carrier changes. `mateTarget()` scores a 5×5 grid inside the lane and picks the best spot.
@@ -360,9 +393,9 @@ one safe one. (This rationale is inferred from the code — the lane penalty
 
 ## 4. Architecture
 
-`index.html` (41) is a DOM shell, `styles.css` (73) the CSS, and the JS lives in `js/`:
-`config` (79), `state` (88), `util` (159), `ai-off` (121), `ai-def` (105), `ai-ball` (115),
-`keeper` (75), `match` (46), `input` (62), `render` (141), `ui` (98), `main` (177).
+`index.html` (40) is a DOM shell, `styles.css` (67) the CSS, and the JS lives in `js/`:
+`config` (89), `state` (100), `util` (311), `ai-off` (121), `ai-def` (105), `ai-ball` (116),
+`keeper` (75), `match` (46), `input` (62), `render` (157), `ui` (63), `main` (223).
 
 Imports run one way only: config → state → util → ai/keeper → match → input → render/ui →
 main. Because module bindings are read-only, every value that is reassigned from more than
@@ -376,42 +409,60 @@ while `util` is the layer above. `kickPlan` moved to `util.js` so `keeper.js` an
 `ai-ball.js` can both use it without importing each other.
 
 ```
-resize()          canvas sizing + field scale        index.html:147
-mk/buildTeams     entity construction                index.html:159
-reset()           kickoff positions                  index.html:178
-input handlers    touch + mouse → touch{}            index.html:202-234
-doPass/turnover   state transitions                  index.html:251,263
-assignRoles       teammate lanes                     index.html:272
-mateTarget        teammate spot scoring              index.html:286
-frame()           rAF loop                           index.html:332
-step(dt)          all simulation                     index.html:346
-draw()            all rendering                      index.html:486
-storage           persistence + sliders              index.html:573-651
+resize()                       canvas sizing + field scale      state.js
+mk / buildTeams / reset()      entities, kickoff positions      state.js
+input handlers                 touch + mouse → touch{}          input.js
+bufferInput                    stores intent, never moves       util.js
+startKick / holdBall           the touch cycle                  util.js
+carryChase                     carrier runs at the ball         util.js
+updateClaim / lungeSolve /
+  lungeActive / lungeStep      reception claim and lunge        util.js
+moveTo                         everyone not carrying/lunging    util.js
+interceptSolve / pickChasers   who goes for a loose ball        util.js
+doPass                         releases the ball                util.js
+assignRoles / mateTarget       teammate lanes and spots         ai-off.js
+decide / driveCarrier          AI carrier plans and kicks       ai-ball.js
+frame()                        rAF loop                         main.js
+step(dt)                       all simulation                   main.js
+draw()                         all rendering                    render.js
+buildPanel / clearStore        gear panel                       ui.js
 ```
 
 ### Coordinate system
 The field is **always 1200 logical units wide**. `scale = cssW / 1200`, and `FIELD_H` is
-derived from the viewport: `FIELD_H = cssH / scale` (`index.html:152`). The literal
-`FIELD_H = 1000` at line 128 is overwritten by the first `resize()`. On a 390×844 phone the
-pitch is ~600×1298 units. `X(v) = v * scale` converts field units to css px for drawing;
-the joystick is drawn in css px directly. Device pixel ratio is capped at 2.5.
+derived from the viewport: `FIELD_H = cssH / scale`. The literal `FIELD_H: 2000` in `S` is
+overwritten by the first `resize()`. On a 375×812 phone `scale` is 0.3125 and the pitch is
+1200×2598 units. `X(v) = v * scale` converts field units to css px for drawing; the joystick
+is drawn in css px directly. Device pixel ratio is capped at 2.5.
 
 ### Entities
-`mk(team)` → `{ x, y, fx, fy, team, tx, ty, think, seed }`. `fx,fy` is facing (init `0,-1`),
-`tx,ty` the AI target, `think` a retarget countdown, `seed` a per-player random for noise.
-`assignRoles` adds `lane`, `laneN`, `band`, `prefD` to blue players at runtime.
+`mk(team)` → `{ x, y, fx, fy, team, tx, ty, think, seed, sf, role, plan, side, bx, by, bsf,
+shotOn, shotId, shotDeadline, shotX, shotY }`. `fx,fy` is facing (init `0,-1`), `tx,ty` the
+AI target, `think` a plan countdown, `seed` a per-player random for noise, `sf` the fraction
+of top speed actually travelled last frame (measured after `clampField`, so a player pinned
+on a touchline reports the speed he has, not the one he asked for). **`bx,by,bsf` is the
+buffered input** — direction and magnitude the player *wants*, written every frame by
+`bufferInput` and only read at contact. `assignRoles` adds `lane`, `laneN`, `band`, `prefD`
+to teammates at runtime.
 
-Players are 30×30 squares (`PH = 15` half-side). Ball is `{ x, y, vx, vy, owner }`,
-`BALL_R = 9`. Arrays: `blue`, `red`, `all = blue.concat(red)`.
+Players are 30×30 squares (`PH = 15` half-side), `BALL_R = 10`, so `CONTACT = 25`.
+Arrays: `E.blue`, `E.red`, `E.all`, plus `E.gkB` / `E.gkR`.
 
-Module-level state: `ctrl` (controlled player), `lockOut`, `lastPasser`, `possTime`,
-`bestTime`, `running`, `deadTime`, `time`, `roleTimer`, `lastCarrier`, `drawAim`.
+`ball` carries the cycle and reception state alongside the physics: `held` (carrier stopped,
+ball at his feet), `chaseV` (his speed for this cycle), `peakGap` (derived, for the guard),
+`claim` / `claimX` / `claimY` / `lungeNeed` (reception), `pending` (queued pass), `chaser` /
+`chaseDir` (who is committed to a loose ball).
+
+`S` holds `ctrl`, `time`, `lockOut`, `lockedPlayer`, `lastTeam`, `kickNext`, `scoreB`,
+`scoreR`, `matchOver`, `running`, `deadTime`, `roleTimer`, `lastCarrier`, `drawAim`, the
+viewport values `cssW`/`cssH`/`scale`/`FIELD_H`, and the guard counters `gapWarn` /
+`gapWarnLog`.
 
 ### Loop
 `requestAnimationFrame(frame)`. `dt` is capped at 0.033 s, so a stall slows the sim rather
 than teleporting anything. Every frame: recompute joystick base → tick the respawn timer →
 `step(dt)` if running → `draw()`. `draw()` runs even when not running, so the field stays
-visible during the turnover pause.
+visible during the pause after a goal.
 
 ### Input
 One fixed joystick, bottom-centre: `joyBase = { cssW * 0.5, cssH - max(96, joyR + 40) }`,
@@ -426,94 +477,97 @@ the same function but never fires a pass, since a system interruption is not a d
 release.
 
 The first tap does not steer: while `!running`, `onDown` hides the start overlay, sets
-`running = true`, calls `reset()` and returns without taking the stick (`index.html:209`).
-The same path means a tap during the 1.1 s post-turnover pause skips the rest of it. That
+`running = true`, calls `reset()` and returns without taking the stick.
+The same path means a tap during the post-goal pause skips the rest of it. That
 tap's `touchend` is ignored because `touch.id` is still null, so it cannot fire a pass.
 
 ### Simulation order inside `step(dt)`
-1. Controlled player: direction and analog speed from the stick; aim flag. Then any pending
-   `touch.fire` from a release is consumed and the pass is played.
-2. Teammates: reassign roles if stale; retarget every 0.3–0.6 s; **if the ball has no owner,
-   every teammate targets the ball directly** and retargets each frame (`index.html:388`).
-   Then `moveTo` at `mateSpeed`. The player currently under `ctrl` is skipped.
-3. Opponents: nearest red to the ball (or to its carrier) chases at `foeSpeed`. The rest
-   greedily claim the nearest unclaimed blue that is not the carrier and stand 40 units
-   goal-side of them toward the ball, plus a slow sine wobble (~±55 units), moving at
-   `foeSpeed * 0.84` and only when more than 24 units off that spot. Surplus reds with
-   nobody to mark fall back to chasing the ball at `foeSpeed * 0.85`. Finally, any two reds
-   closer than 42 units are pushed apart.
-4. Ball, always the same path: linear friction, integrate, bounce off walls at 0.72
-   restitution. Then possession (the owner keeps it unless a nearer blue has it inside their
-   zone; the passer is excluded for `lockOut` = 0.32 s; any change of hands stops the ball).
-   Then the steering term, applied only while the ball is inside the owner's zone.
-5. Turnover check, then control switch, then HUD text.
-
-Note: `possTime` increments in both the owned and loose branches, so the clock keeps running
-while a pass is in the air. The score is time-until-turnover, not strictly time in
-possession.
+1. `updateClaim()` **first**, because the movement blocks below ask `lungeActive()` whether
+   to stand aside and need a fresh answer.
+2. Controlled player: stick direction and magnitude → `bufferInput`. He is moved here only
+   if he is neither carrying nor in an active lunge; otherwise the stick is buffered and
+   `carryChase` / `lungeStep` move him. A release past the threshold arms `ball.pending`.
+3. Keepers, then the AI carrier (`driveCarrier` — plans and queues kicks; `moveTo` does not
+   move a carrier), then `attack`/`defend` for both teams.
+4. `lungeStep(dt)` — the claimed player darts, if the lunge is active.
+5. `carryChase(dt)` — the carrier runs at the ball.
+6. Ball: linear friction, integrate, bounce off walls at 0.72 restitution, goal check inside
+   the mouth. Then the gap guard.
+7. Steal check — an opponent within `stealR` of the ball takes it, keeper protection aside.
+8. Loose-ball contact — the only place a loose ball stops.
+9. Contact for the owner — fire the queued pass, or kick, or hold.
+10. Control switch, then the aim line for drawing.
 
 ### Rendering
 Immediate mode, redrawn every frame, painter's order: pitch fill → stripes → boundary /
-halfway / centre circle → for each player (pickup-radius ring, white halo if controlled,
-body square, facing tick) → aim arrow → ball → joystick (inner ring, dashed threshold ring,
-knob clamped to the threshold radius, yellow once past the inner ring).
+halfway / centre circle → goals and boxes → for each player (pickup-radius ring, body square,
+white outline if he owns the ball, white ring at `PH*1.2` if he is the controlled player,
+facing tick) → armed-pass line (green, dotted, from the ball) → charge aim line (yellow,
+dashed) → ball and its `tackleR` ring → joystick (inner ring, dashed threshold ring, knob
+clamped to the threshold radius).
 
-### Persistence
-Key `fbproto_tuning_v1`. `writeStore` prefers an optional host-provided async API
-`window.storage.set(key, value) → Promise` and falls back to `localStorage.setItem`;
-`loadStore` mirrors it with `window.storage.get(key) → { value }`. `window.storage` is not
-defined anywhere in this repo — on GitHub Pages it is undefined and the localStorage path is
-what actually runs. Both paths are wrapped in try/catch, so private browsing degrades to
-"settings don't persist" rather than throwing.
+The controlled player's marker is a **stroked ring, not a filled disc**. It used to be a
+filled disc of radius `PH*1.9` = 28.5, which was wider than the ball's resting offset, so
+player and ball read as a single blob and made the human's carry look glued while an AI's
+identical geometry did not.
 
-Saves are debounced 500 ms and flash "Nastavení uloženo". `applyLoaded` only copies keys
-that exist in `DEFAULTS` and are numbers, so a corrupt or stale payload cannot inject
-fields. `DEFAULTS` is a deep copy of `T` taken at load time — it is the in-code defaults,
-not the stored ones, so "Vrátit výchozí hodnoty" always restores the hand-tuned values.
+### Settings are not persisted
+There is no storage layer. `T` is initialised from `TUNABLES` at every boot, so the game
+always runs on what the source says. Sliders mutate `T` live for the session and nothing is
+written; `clearStore()` deletes any payload left by the old `fbproto_tuning_v1` key at boot.
+"Vrátit výchozí hodnoty" copies `DEFAULTS` back into `T`.
+
+This replaced a `window.storage` / `localStorage` layer that silently overrode new defaults
+on any device that had ever saved — changing a default in code had no effect there, and the
+symptom was indistinguishable from the code not working.
 
 ## 5. Tunables
 
-All exposed in the gear panel and persisted. Defaults are as written in `T`
-(`index.html:133`) and are hand-tuned by playing — do not change them without being asked.
+All exposed in the gear panel, generated from the `TUNABLES` list in `js/config.js`. Adding a
+tunable is one line there — the panel row, `T`'s initial value and `DEFAULTS` all follow, and
+the group headings come from the `group` field. Nothing is persisted; every boot starts from
+these values. They are hand-tuned by playing — do not change one without being asked.
 
 | Key | Default | Range (step) | Unit | Effect |
 |---|---|---|---|---|
-| `teamSize` | 4 | 1–6 (1) | count | Blue players. Rebuilds teams and resets. |
-| `foeSize` | 4 | 1–6 (1) | count | Red players. Rebuilds teams and resets. |
+| `teamSize` | 5 | 1–6 (1) | count | Blue outfielders. Rebuilds teams and starts a new match. |
+| `foeSize` | 5 | 1–6 (1) | count | Red outfielders. Same. |
 | `playerSpeed` | 200 | 120–320 (5) | units/s | Top speed of the controlled player, reached at the inner ring. |
 | `mateSpeed` | 200 | 100–320 (5) | units/s | Blue AI speed. |
 | `foeSpeed` | 200 | 100–320 (5) | units/s | Red chaser speed. Markers use 0.84×, surplus reds 0.85×. |
-| `pickupMate` | 30 | 16–90 (1) | units | Blue reception radius, player centre → ball centre. Also the **control zone**: inside it the owner steers the ball, outside it the ball is free. |
-| `tackleR` | 10 | 9–60 (1) | units | Extra steal reach beyond the body. An opponent within `PH + tackleR` of the ball takes it off you. **Not** the ball's physical radius — that is the `BALL_R` constant. Renamed from `ballR`, so a device with older saved settings falls back to this default. |
-| `passSpeed` | 660 | 300–1100 (20) | units/s | **Maximum** pass speed — reached when the thumb is released `passRange` past the ring. AI passes still always use this value. |
-| `friction` | 200 | 80–700 (10) | units/s² | Linear deceleration of the ball, now always applied. |
-| `joyR` | 70 | 40–100 (2) | css px | Inner ring radius. Also the distance at which you hit full speed. |
-| `passThresh` | 122 | 100–180 (2) | % of `joyR` | Outer ring radius — the charge boundary. Defaults to ~85.4 css px. |
-| `dribbleKick` | 0 | 0–80 (1) | units | How much further than foot contact (24) the ball rides at full sprint; scales linearly with stick deflection. Also sets where control is lost: above `sf = (pickupMate − 24) / dribbleKick`. 0 = ball always at the foot, never loses control. |
-| `ballFollow` | 20 | 2–30 (1) | 1/s | How hard the ball is pulled to its target inside the zone. High = tight, almost glued. Low = loose and laggy, ball wanders more. |
-| `goalW` | 240 | 100–500 (10) | units | Goal mouth width, centred on `FIELD_W/2` at both ends. 20% of the pitch width at the default. |
-| `targetGoals` | 5 | 1–15 (1) | count | First to this many goals wins. Checked when a goal is scored, so lowering it mid-match takes effect on the next goal. |
-| `foePickup` | 55 | 16–90 (1) | units | Red reception/control zone — their equivalent of `pickupMate`. **Also caps how fast the AI can dribble**: below about 51 the AI must slow down to keep the ball, and at 30 it crawls. |
-| `foeError` | 0 | 0–35 (°) | degrees | Random rotation applied to every AI pass and shot. The AI's only source of mistakes. |
-| `shootRange` | 700 | 200–1600 (20) | units | How close to goal an AI carrier must be before it will shoot. |
-| `gkDepth` | 55 | 0–160 (5) | units | How far off his line the keeper stands. Positioning only — he catches with his body. Renamed from `gkReach`, so old saved settings fall back to the default. |
-| `soloLane` | 50 | 20–160 (5) | units | How clear the straight line to goal must be before a central carrier goes alone and stops looking for a pass. |
+| `pickupMate` | 40 | 16–90 (1) | units | Blue **claim** radius. A loose ball whose path crosses it makes that player the receiver; it does not stop or slow the ball. |
+| `foePickup` | 40 | 16–90 (1) | units | Red claim radius. Same rule, same code. |
+| `tackleR` | 3 | 0–60 (1) | units | Extra steal reach beyond the body. An opponent within `PH + tackleR` of the **ball** takes it. Not the ball's physical radius — that is `BALL_R`. |
+| `touchPush` | 100 | 0–600 (10) | units/s | Extra speed given to the ball at contact, scaled by stick magnitude. Sets the whole dribble rhythm: peak gap `(touchPush*m)²/(2*friction)`, cycle `2*touchPush*m/friction`. The formula holds while `touchPush <= speedOf`. |
+| `chaseSteer` | 0 | 0–100 (5) | % | How much stick is blended into the carrier's automatic run at the ball. 0 = pure chase and full commitment between contacts, 100 = continuous steering. |
+| `lungeSpeed` | 50 | 10–500 (10) | % of normal | **Cap** on the reception lunge. The actual speed is what the interception requires; this only limits it. Note it is a percentage, so below 100 the lunge is slower than normal running. |
+| `friction` | 400 | 80–700 (10) | units/s² | Linear deceleration of the ball. Also halves the dribble cycle length if doubled. |
+| `passSpeed` | 800 | 300–1100 (20) | units/s | **Maximum** pass speed, reached when the thumb is released `passRange` past the ring. |
 | `passRange` | 120 | 40–260 (5) | css px | How far past the threshold ring the thumb must travel for a full-power pass. |
-| `passMin` | 40 | 10–90 (5) | % of `passSpeed` | Weakest possible pass, played when the thumb is released right on the ring. |
-| `aimLen` | 33 | 5–100 (1) | % of roll distance | Length of the dotted aiming line as a fraction of how far the ball would really go. 100 would make it an exact landing predictor. |
+| `passMin` | 40 | 10–90 (5) | % of `passSpeed` | Weakest pass, played when the thumb is released right on the ring. |
+| `aimLen` | 33 | 5–100 (1) | % of roll distance | Length of the aiming line as a fraction of how far the ball would really go. |
+| `aiArrive` | 220 | 50–500 (10) | units/s | Speed an AI pass should still have on arrival. Drives distance-scaled pass power. |
+| `passQueueMax` | 700 | 200–2000 (50) | ms | How long an armed pass waits for a contact before being dropped. With the automatic chase a contact always arrives well inside this, so it effectively never expires. |
+| `passLead` | 90 | 0–300 (5) | units | How far ahead of a moving teammate an AI pass is aimed, scaled by his `sf`. |
+| `joyR` | 70 | 40–100 (2) | css px | Inner ring radius. Also the distance at which you hit full speed. |
+| `passThresh` | 122 | 100–180 (2) | % of `joyR` | Outer ring radius — the charge boundary. ~85.4 css px at the default. |
+| `goalW` | 240 | 100–500 (10) | units | Goal mouth width, centred on `FIELD_W/2` at both ends. Also scales the boxes. |
+| `targetGoals` | 5 | 1–15 (1) | count | First to this many goals wins. |
+| `shootRange` | 700 | 200–1600 (20) | units | How close to goal an AI carrier must be before it will shoot. |
+| `soloLane` | 50 | 20–160 (5) | units | How clear the line to goal must be before a central carrier goes alone. |
+| `foeError` | 0 | 0–35 (1) | degrees | Random rotation on every AI pass and shot. The AI's only source of mistakes. |
+| `runDepth` | 120 | 0–400 (5) | units | How far beyond the last opposing defender a band-0 run may target. |
+| `interceptEff` | 90 | 50–100 (1) | % | Share of top speed a player assumes he can sustain when solving an intercept. |
+| `planHold` | 500 | 100–1500 (50) | ms | How long an AI carrier keeps a non-kick plan before reconsidering. |
+| `planBreak` | 90 | 40–250 (5) | units | Opponent proximity that breaks the plan early. |
 | `markDist` | 45 | 20–120 (1) | units | How far goal-side of his man a marker stands. |
 | `markShift` | 25 | 0–60 (1) | % | Share of the x gap between the marked man and the ball that the marker shifts across. |
 | `lineGap` | 60 | 0–200 (5) | units | How far behind the deepest attacker the defensive line sits. |
 | `pressDist` | 900 | 200–2000 (20) | units | Ball must be within this of the defending goal before anyone presses it. |
 | `wobbleNear` | 600 | 100–1500 (20) | units | Distance from the ball at which a marker's drift fades to zero. |
-| `runDepth` | 120 | 0–400 (5) | units | How far beyond the last opposing defender a band-0 run may target. |
-| `passLead` | 90 | 0–300 (5) | units | How far ahead of a moving teammate an AI pass is aimed, scaled by his speed. |
-| `interceptEff` | 90 | 50–100 (1) | % | Share of top speed a player assumes he can sustain when solving for an intercept. Below 100 because nobody turns instantly. |
-| `aiArrive` | 220 | 50–500 (10) | units/s | Speed an AI pass should still have on arrival. Drives the distance-scaled pass power. |
-| `planHold` | 500 | 100–1500 (50) | ms | How long an AI carrier keeps a non-kick plan before reconsidering. |
-| `planBreak` | 90 | 40–250 (5) | units | Opponent proximity that breaks the plan early. |
+| `gkDepth` | 55 | 0–160 (5) | units | How far off his line the keeper stands. Positioning only — he saves with his body. |
 | `gkReaction` | 180 | 0–500 (10) | ms | Delay before the keeper reacts to a detected shot. |
-| `gkError` | 45 | 0–200 (5) | units | One-off random error on the sampled save point. |
+| `gkError` | 25 | 0–200 (5) | units | One-off random error on the sampled save point. |
 | `gkDiveSpeed` | 160 | 100–300 (5) | % | Speed multiplier while moving to the save point. |
 | `gkParrySpeed` | 520 | 200–1000 (20) | units/s | Above this the keeper parries instead of catching. |
 | `gkParryKeep` | 45 | 10–90 (5) | % | Share of speed a parried ball keeps. |
@@ -521,32 +575,29 @@ All exposed in the gear panel and persisted. Defaults are as written in `T`
 | `gkVentureSafe` | 260 | 80–600 (10) | units | No opponent this close means he may dribble out. |
 | `gkVenture` | 150 | 0–500 (10) | units | How far beyond the box he may carry the ball. |
 
-Sliders `sB`/`sR` rebuild the teams; the other ten are wired by array index to `s0`–`s9`
-(`index.html:656`), so **adding a tunable to that array shifts every id after it** — append
-at the end. The panel's visual order is independent, since `register()` looks elements up by
-id, so a new row can sit anywhere in the HTML.
+There is no positional id mapping any more — rows are generated from `TUNABLES` in order, so
+a new entry can go anywhere and nothing shifts.
 
 ### Non-tunable constants (in code, no UI)
 
 | Constant | Value | Where |
 |---|---|---|
-| Field width | 1200 units (height derived from viewport) | `index.html:130` |
-| `GOAL_DEPTH` | 60 units — drawn goal area only, no effect on play | `index.html:134` |
-| `STEAL_LOCK` | 0.5 s before the player who lost the ball can retake it | `index.html:152` |
-| Player half-size `PH` | 15 (30×30 square) | `index.html:129` |
-| Ball radius | 9 | `index.html:130` |
-| Contact distance `CONTACT` | `PH + BALL_R` = 24 units — kick trigger and kickoff placement | `index.html:132` |
-| Pass lockout | 0.32 s before the passer can re-collect | `index.html:258` |
-| Role reassignment | every 2.2 s or on carrier change | `index.html:377` |
-| Teammate retarget | every 0.3–0.6 s | `index.html:385` |
-| Turnover pause | 1.1 s, flash message 850 ms | `index.html:265` |
-| `dt` cap | 0.033 s | `index.html:333` |
-| Wall restitution | 0.72 | `index.html:450` |
-| Red separation distance | 42 units | `index.html:429` |
-| Marker standoff / wobble / deadzone | 40 / ~±55 / 24 units | `index.html:415-422` |
-| Aim arrow length | 130 units | `index.html:532` |
-| DPR cap | 2.5 | `index.html:149` |
-| Save debounce | 500 ms | `index.html:594` |
+| `FIELD_W` | 1200 units (height derived from the viewport) | `config.js` |
+| Player half-size `PH` | 15 (30×30 square) | `config.js` |
+| `BALL_R` | 10 | `config.js` |
+| `CONTACT` | `PH + BALL_R` = **25** units — the contact test, and where a held ball sits | `config.js` |
+| `GOAL_DEPTH` | 60 units — drawn goal area only, no effect on play | `config.js` |
+| `STEAL_LOCK` | 0.5 s before the player who lost the ball can retake it | `config.js` |
+| `SETTLE` | 0.3 s before an AI that just gained the ball may kick it | `config.js` |
+| `LUNGE_TAKEOVER` | 0.15 — the lunge only drives the player above 15% of normal speed | `util.js` |
+| Claim hand-over margin | 0.05 s a rival must beat the incumbent by | `util.js` |
+| Pass lockout | 0.32 s before the passer can re-collect | `util.js` |
+| Role reassignment | every 2.2 s or on carrier change | `ai-off.js` |
+| Goal pause | 1.4 s | `match.js` |
+| `dt` cap | 0.033 s | `main.js` |
+| Wall restitution | 0.72 | `main.js` |
+| Controlled-player ring | `PH * 1.2` = 18 units, stroked | `render.js` |
+| DPR cap | 2.5 | `state.js` |
 
 ## 6. Running and deploying
 
@@ -575,14 +626,13 @@ Open questions (need a human answer):
   `CNAME` is committed, which would put the site at `janpliva.github.io/haaland.io/`. If a
   domain is configured in repo settings rather than in-repo, that is fine — but a `CNAME`
   file is the durable form.
-- **`window.storage`.** Prefers a host-provided async storage API that does not exist in
-  this repo. Presumably from the environment this was first prototyped in. It is dead code
-  on GitHub Pages; the fallback is what runs. Keep both paths.
 - **AI distances never scaled with the pitch.** `FIELD_W` was doubled from 600 to 1200 by
-  hand, but the forward-run band (`carrier.y − 430`), marking standoff (40), separation (42),
-  wobble (36) and the aim arrow (130) are still absolute. Relative to the pitch they are now
-  half what they were, so teammate runs are much shorter than they look on paper. Worth
-  making proportional during the symmetry refactor.
+  hand, but the marking standoff, separation and wobble constants are still absolute.
+  Relative to the pitch they are now half what they were. Worth making proportional.
+- **`lungeSpeed` is a cap below 100%.** At the shipped 50 the reception lunge can never
+  exceed half normal running speed, which is a strange ceiling for something described as a
+  dart. It may want to live above 100, or the cap may want to be relative to the required
+  speed instead.
 
 Known rough edges (behaviour, not necessarily bugs):
 
@@ -600,30 +650,26 @@ Known rough edges (behaviour, not necessarily bugs):
   every position became NaN and nothing was drawn again. Now guarded with `|| 1`. Worth
   knowing because canvas silently ignores non-finite coordinates — there is no error, the
   players simply vanish.
-- **Stored settings override new defaults.** `applyLoaded` copies any saved key that still
-  exists in `DEFAULTS`, so changing a default in code has no effect on a device that has
-  already saved settings — the old value wins silently. After changing a default, the only
-  way to see it on that device is the "Vrátit výchozí hodnoty" button.
-- **Trapping stops the ball dead.** A change of owner zeroes the ball's velocity, so a
-  teammate collecting a ball that got away from you stops it rather than running on with it.
-  Recovering your own escaped ball does *not* trap it, because ownership never changed.
-- **A teammate can take a ball you are still dribbling** if it is outside your zone and they
-  are closer to it than you. During a sprint the ball is outside your zone by design, so a
-  teammate cutting close across your run can inherit it — control then switches to them.
-- **A pass leaves from wherever the ball is**, not from the player — `doPass` no longer
-  teleports it. The ball can be up to `pickupMate` away when you release, so the pass
-  origin moves around a little.
-- **AI distances are absolute field units tuned for portrait.** The forward band reaches 430
-  units in front of the carrier; on a short/landscape viewport `FIELD_H` shrinks below that
-  and the band collapses into the clamp fallback at `index.html:294`.
+- **Contact stops the ball dead.** Taking possession zeroes the ball's velocity, so a
+  reception kills the pass rather than running on with it.
+- **A pass leaves from wherever the ball is**, not from the player, and it fires at the next
+  contact rather than on release — so the origin and the moment both move around a little.
+- **Input latency is one touch cycle.** A direction change only reaches the carrier at the
+  next contact: measured median 217 ms at half stick and 333 ms at full, `2*touchPush*m/friction`
+  by construction. Same for the queued pass. That is the mechanic, but it is the number to
+  watch if the controls feel heavy.
+- **A keeper who reaches his save point early stands still** until the shot arrives — median
+  50 ms, p90 183 ms, worst seen 567 ms. Deliberate; a keeper setting himself is what a keeper
+  does. Unlike the old receiver freeze, nothing is being taken from a player under control.
+- **AI distances are absolute field units tuned for portrait**, so a short or landscape
+  viewport squashes the runs.
 - **`passThresh = 100` deletes the aiming band.** The arrow only shows for
   `joyR < d ≤ thresh`, which is empty at 100%, so the pass fires with no direction preview.
 - **One touch only.** You cannot steer and use the settings panel at the same time; the
   first touch wins until it lifts.
-- **`step()` returns early on a turnover**, so that frame skips the HUD update and leaves
-  `drawAim` stale. Invisible at 60 fps.
-- **The turnover pause is skippable** by tapping — the same code path that starts the game
+- **`step()` returns early when a goal is scored**, so that frame leaves `drawAim` stale.
+  Invisible at 60 fps.
+- **The post-goal pause is skippable** by tapping — the same code path that starts the game
   from the overlay.
-- **No goals, shots, tackles, out-of-play or restarts.** Walls bounce. A turnover fully
-  resets positions after 1.1 s.
+- **No out-of-play, throw-ins or corners.** Walls bounce everywhere except the goal mouth.
 - **UI is Czech only.**
