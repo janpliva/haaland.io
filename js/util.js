@@ -69,7 +69,14 @@ export function holdBall(o){
 // chaseSteer přimíchá stick do směru běhu (0 = čistý doběh, 100 = plné řízení).
 export function carryChase(dt){
   var o = ball.owner; if(!o) return;
-  if(ball.held){ o.sf = 0; return; }
+  if(ball.held){
+    // Míč u nohy neznamená, že hráč stojí. Se setrvačností se musí dál rozjíždět podle
+    // nabufferovaného záměru — jinak nemůže nikdy nabrat rychlost, a protože se síla předkopu
+    // počítá z rychlosti, driblink by nikdy nezačal (změřeno: nula doteků za 300 snímků).
+    if(T.accelTime > 0) driveMove(o, o.bx, o.by, speedOf(o)*(o.bsf||0), dt);
+    o.sf = 0;
+    return;
+  }
   var dx = ball.x - o.x, dy = ball.y - o.y, d = Math.sqrt(dx*dx + dy*dy);
   var nx = d > 0.001 ? dx/d : o.fx, ny = d > 0.001 ? dy/d : o.fy;
   var k = T.chaseSteer/100;
@@ -87,7 +94,13 @@ export function carryChase(dt){
     o.sf = full > 0 ? Math.min(1, Math.sqrt(ax*ax + ay*ay)/full) : 0;
     o.vx = ax/dt; o.vy = ay/dt;
   } else {
-    driveMove(o, nx, ny, Math.min(ball.chaseV, d/dt), dt);
+    // Cílová rychlost je ZÁMĚR (bsf), ne ball.chaseV: chaseV je snímek rychlosti z okamžiku
+    // kopu, a kdyby se držel jako povel, nemohl by držitel nikdy zrychlit — každý další kop
+    // by si vzal rychlost z toho zaseknutí. Změřeno: natrvalo zaseknutý na 4,2 j/s.
+    // Bez ořezu na d/dt: původní min(chaseV*dt, d) jen bránil přeskočení míče v jednom snímku,
+    // ale jako POVEL by držitele u míče pokaždé přibrzdil a cyklus doteku by se rozpadl na
+    // mikrodotyky (naměřeno 0,050 s místo 0,483 s, míč se nikdy nedostal dál než 25).
+    driveMove(o, nx, ny, speedOf(o)*(o.bsf||0), dt);
   }
 }
 

@@ -2,7 +2,7 @@
 import { T, FIELD_W, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
 import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField,
          histPush, locked } from './state.js';
-import { foesOf, stealR, inOwnBox, bufferInput, updateClaim, lungeStep, lungeActive,
+import { foesOf, speedOf, stealR, inOwnBox, bufferInput, updateClaim, lungeStep, lungeActive,
          carryChase, startKick, holdBall, doPass, pickChasers, rollDist,
          driveMove } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
@@ -222,7 +222,16 @@ function step(dt){
         var pp = ball.pending; ball.pending = null;
         doPass(pp.x, pp.y, pp.speed);
       } else {
+        // Se setrvačností nesmí hráč kopnout tvrději, než jak rychle opravdu běží: bsf je jen
+        // ZÁMĚR (výchylka sticku) a při rozjezdu je 1, i když hráč skoro stojí — míč by odletěl
+        // rychlostí 300 hráči, který má 0 (naměřen vrchol mezery 91,8 proti pojistce 75).
+        // Bere se z VEKTORU rychlosti, ne z p.sf: to je při drženém míči nulované, a m by pak
+        // bylo pořád nula, takže by se nikdy nekoplo.
         var m = o.bsf || 0;
+        if(T.accelTime > 0){
+          var vv = Math.sqrt(o.vx*o.vx + o.vy*o.vy);
+          m = Math.min(m, vv/Math.max(1, speedOf(o)));
+        }
         if(m > 0) startKick(o, o.bx, o.by, m);
         else holdBall(o);                    // prst dole → stojí a míč leží u nohy
       }
