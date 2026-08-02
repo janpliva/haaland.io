@@ -143,14 +143,19 @@ export function locked(p){
 // dist a clampField bydlí tady, ne v util.js: potřebuje je reset() a jinak by vznikl kruh
 export function dist(a,b){ var dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
 export function clampField(p){
+  var x0 = p.x, y0 = p.y;
   p.x = Math.max(PH, Math.min(FIELD_W-PH, p.x));
   p.y = Math.max(PH, Math.min(S.FIELD_H-PH, p.y));
+  // Co se u mantinelu uřízlo z dráhy, musí se uříznout i z rychlosti. Jinak by se do hráče
+  // opřeného o čáru „nastřádala" rychlost do stěny a při odlepení by vystřelil.
+  if(p.x !== x0 && ((p.x > x0) ? p.vx < 0 : p.vx > 0)) p.vx = 0;
+  if(p.y !== y0 && ((p.y > y0) ? p.vy < 0 : p.vy > 0)) p.vy = 0;
 }
 
 // bx/by/bsf = nabufferovaný vstup (stick u člověka, směr k cíli u AI) — projeví se až u doteku
 export function mk(team){ return { x:0, y:0, fx:0, fy:-1, team:team, tx:0, ty:0, think:0,
                             seed:Math.random()*100, sf:0, role:'', plan:null, side:0,
-                            bx:0, by:-1, bsf:0, h:mkHist(), rush:false, rushT:0, rushX:0, rushY:0,
+                            bx:0, by:-1, bsf:0, vx:0, vy:0, h:mkHist(), rush:false, rushT:0, rushX:0, rushY:0,
                             shotOn:false, shotId:0, shotDeadline:0, shotX:0, shotY:0 }; }
 
 export function buildTeams(){
@@ -181,7 +186,7 @@ export function reset(kickTeam){
   E.all.forEach(function(p){
     p.fx = 0; p.fy = dirOf(p.team); p.tx = p.x; p.ty = p.y;
     p.think = 0; p.sf = 0; p.plan = null; clampField(p);
-    p.bx = p.fx; p.by = p.fy; p.bsf = 0;
+    p.bx = p.fx; p.by = p.fy; p.bsf = 0; p.vx = 0; p.vy = 0;
   });
   // rozehrává inkasující tým
   var starter = kickTeam === 'b' ? E.blue[0] : E.red[0];

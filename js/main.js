@@ -3,7 +3,8 @@ import { T, FIELD_W, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
 import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField,
          histPush, locked } from './state.js';
 import { foesOf, stealR, inOwnBox, bufferInput, updateClaim, lungeStep, lungeActive,
-         carryChase, startKick, holdBall, doPass, pickChasers, rollDist } from './util.js';
+         carryChase, startKick, holdBall, doPass, pickChasers, rollDist,
+         driveMove } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
 import { attack } from './ai-off.js';
 import { defend } from './ai-def.js';
@@ -62,15 +63,22 @@ function step(dt){
   // s míčem ho vede doběh, a při zpracování cuknutí — ale to jen když po něm opravdu něco
   // chce. Když si míč jede rovnou na něj, řídí dál stickem a nic ho nemrazí.
   var driven = (ball.owner === S.ctrl) || lungeActive(S.ctrl);
-  if(mv.sf > 0 && !driven){
-    var sp = T.playerSpeed * mv.sf, x0 = S.ctrl.x, y0 = S.ctrl.y;
-    S.ctrl.fx = mv.x; S.ctrl.fy = mv.y;
-    S.ctrl.x += mv.x*sp*dt; S.ctrl.y += mv.y*sp*dt;
-    clampField(S.ctrl);
-    // sf = podíl ze SKUTEČNĚ ušlé vzdálenosti. U mantinelu clampField krok uřízne, ale zadaná
-    // rychlost zůstala — hráč stál a hlásil sf=1, čímž se nafukoval předkop i míření AI.
-    var mvx = S.ctrl.x - x0, mvy = S.ctrl.y - y0, full = T.playerSpeed*dt;
-    moveSF = full > 0 ? Math.min(1, Math.sqrt(mvx*mvx + mvy*mvy)/full) : 0;
+  if(!driven && (mv.sf > 0 || T.accelTime > 0)){
+    if(!(T.accelTime > 0)){
+      var sp = T.playerSpeed * mv.sf, x0 = S.ctrl.x, y0 = S.ctrl.y;
+      S.ctrl.fx = mv.x; S.ctrl.fy = mv.y;
+      S.ctrl.x += mv.x*sp*dt; S.ctrl.y += mv.y*sp*dt;
+      clampField(S.ctrl);
+      // sf = podíl ze SKUTEČNĚ ušlé vzdálenosti. U mantinelu clampField krok uřízne, ale zadaná
+      // rychlost zůstala — hráč stál a hlásil sf=1, čímž se nafukoval předkop i míření AI.
+      var mvx = S.ctrl.x - x0, mvy = S.ctrl.y - y0, full = T.playerSpeed*dt;
+      moveSF = full > 0 ? Math.min(1, Math.sqrt(mvx*mvx + mvy*mvy)/full) : 0;
+      S.ctrl.vx = mvx/dt; S.ctrl.vy = mvy/dt;
+    } else {
+      // výchylka sticku = CÍLOVÁ rychlost, ne zrychlení: půlka výchylky znamená běh na půl
+      driveMove(S.ctrl, mv.x, mv.y, T.playerSpeed*mv.sf, dt);
+      moveSF = S.ctrl.sf;
+    }
   }
 
   // prst zvednutý mimo práh → přihrávka se NACHYSTÁ a odehraje se až při nejbližším doteku.

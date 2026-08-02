@@ -78,12 +78,42 @@ export function carryChase(dt){
     var mm = Math.sqrt(mx*mx + my*my);
     if(mm > 1e-6){ nx = mx/mm; ny = my/mm; }
   }
-  var step = Math.min(ball.chaseV*dt, d), x0 = o.x, y0 = o.y;
-  o.x += nx*step; o.y += ny*step;
-  o.fx = nx; o.fy = ny;
-  clampField(o);
-  var full = speedOf(o)*dt, ax = o.x-x0, ay = o.y-y0;
-  o.sf = full > 0 ? Math.min(1, Math.sqrt(ax*ax + ay*ay)/full) : 0;
+  if(!(T.accelTime > 0)){
+    var step = Math.min(ball.chaseV*dt, d), x0 = o.x, y0 = o.y;
+    o.x += nx*step; o.y += ny*step;
+    o.fx = nx; o.fy = ny;
+    clampField(o);
+    var full = speedOf(o)*dt, ax = o.x-x0, ay = o.y-y0;
+    o.sf = full > 0 ? Math.min(1, Math.sqrt(ax*ax + ay*ay)/full) : 0;
+    o.vx = ax/dt; o.vy = ay/dt;
+  } else {
+    driveMove(o, nx, ny, Math.min(ball.chaseV, d/dt), dt);
+  }
+}
+
+// ---- setrvačnost ----
+// Rychlost hráče je vektor a mění se konečnou rychlostí: k požadované se posouvá tempem
+// speedOf/accelTime při zrychlování a speedOf/decelTime při zpomalování. Směr (fx,fy) jde
+// vždycky za rychlostí, takže nikdo neklouže bokem, a sf je SKUTEČNÁ rychlost / maximum.
+//
+// Při accelTime 0 se tahle funkce vůbec nevolá — každý pohybový blok si v té větvi drží svůj
+// PŮVODNÍ výraz, znak po znaku. Je to schválně: integrátor s obrovským tempem by dal jiné
+// zaokrouhlení a bitová shoda s dřívějškem by padla.
+export function driveMove(p, nx, ny, reqSpeed, dt){
+  var mx = speedOf(p);
+  var vx = p.vx, vy = p.vy, cur = Math.sqrt(vx*vx + vy*vy);
+  var dvx = nx*reqSpeed, dvy = ny*reqSpeed;
+  var rate = mx/(((reqSpeed >= cur) ? T.accelTime : T.decelTime)/1000);
+  var ex = dvx - vx, ey = dvy - vy, el = Math.sqrt(ex*ex + ey*ey), lim = rate*dt;
+  if(el > lim && el > 1e-9){ vx += ex/el*lim; vy += ey/el*lim; }
+  else { vx = dvx; vy = dvy; }
+  var sp = Math.sqrt(vx*vx + vy*vy);
+  if(sp > mx){ vx *= mx/sp; vy *= mx/sp; sp = mx; }
+  p.vx = vx; p.vy = vy;
+  p.x += vx*dt; p.y += vy*dt;
+  clampField(p);                                  // u mantinelu ubere i rychlost do stěny
+  if(sp > 1e-6){ p.fx = vx/sp; p.fy = vy/sp; }
+  p.sf = mx > 0 ? Math.min(1, sp/mx) : 0;
 }
 
 export function moveTo(p, tx, ty, sp, dt){
@@ -98,14 +128,19 @@ export function moveTo(p, tx, ty, sp, dt){
   // dojede sám. Dva pohyby se tak nikdy nepotkají a nemají se o co přetahovat.
   if(ball.owner === p) return;
   if(lungeActive(p)) return;
-  if(d < 2){ p.sf = 0; return; }
-  var step = mv.sf*full, x0 = p.x, y0 = p.y;
-  if(d > 6){ p.fx = mv.x; p.fy = mv.y; }
-  p.x += mv.x*step; p.y += mv.y*step;
-  clampField(p);
-  // sf podle SKUTEČNĚ ušlé vzdálenosti — u mantinelu clampField krok uřízne
-  var ax = p.x-x0, ay = p.y-y0;
-  p.sf = full > 0 ? Math.min(1, Math.sqrt(ax*ax + ay*ay)/full) : 0;
+  if(!(T.accelTime > 0)){
+    if(d < 2){ p.sf = 0; return; }
+    var step = mv.sf*full, x0 = p.x, y0 = p.y;
+    if(d > 6){ p.fx = mv.x; p.fy = mv.y; }
+    p.x += mv.x*step; p.y += mv.y*step;
+    clampField(p);
+    // sf podle SKUTEČNĚ ušlé vzdálenosti — u mantinelu clampField krok uřízne
+    var ax = p.x-x0, ay = p.y-y0;
+    p.sf = full > 0 ? Math.min(1, Math.sqrt(ax*ax + ay*ay)/full) : 0;
+    p.vx = ax/dt; p.vy = ay/dt;          // ať je vektor rychlosti platný i s vypnutou setrvačností
+    return;
+  }
+  driveMove(p, d > 0.001 ? dx/d : p.fx, d > 0.001 ? dy/d : p.fy, Math.min(sp, d/dt), dt);
 }
 
 // vzdálenost bodu od úsečky — test, jestli je přihrávka/střela průchozí
@@ -272,14 +307,19 @@ export function lungeStep(dt){
   var cap = speedOf(p)*T.lungeSpeed/100;
   // rychlost, při které dorazí PRÁVĚ s míčem, se stropem — ne rutinně strop
   var sp = Math.min(cap, s.need !== undefined ? s.need : cap);
-  var step = Math.min(sp*dt, d), x0 = p.x, y0 = p.y;
-  if(d > 0.001){
-    p.x += dx/d*step; p.y += dy/d*step;
-    if(d > 6){ p.fx = dx/d; p.fy = dy/d; }
+  if(!(T.accelTime > 0)){
+    var step = Math.min(sp*dt, d), x0 = p.x, y0 = p.y;
+    if(d > 0.001){
+      p.x += dx/d*step; p.y += dy/d*step;
+      if(d > 6){ p.fx = dx/d; p.fy = dy/d; }
+    }
+    clampField(p);
+    var full = speedOf(p)*dt, ax = p.x-x0, ay = p.y-y0;
+    p.sf = full > 0 ? Math.min(1, Math.sqrt(ax*ax + ay*ay)/full) : 0;
+    p.vx = ax/dt; p.vy = ay/dt;
+  } else if(d > 0.001){
+    driveMove(p, dx/d, dy/d, Math.min(sp, d/dt), dt);
   }
-  clampField(p);
-  var full = speedOf(p)*dt, ax = p.x-x0, ay = p.y-y0;
-  p.sf = full > 0 ? Math.min(1, Math.sqrt(ax*ax + ay*ay)/full) : 0;
 }
 
 export function pickChaser(list){

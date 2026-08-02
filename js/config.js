@@ -95,7 +95,13 @@ export const TUNABLES = [
   { key:'gkRushMax',     def:420,  min:0,   max:900,  step:10,  label:'Jak daleko smí brankář vyběhnout', group:'Brankář' },
   { key:'gkRushCommit',  def:380,  min:0,   max:1200, step:20,  label:'Závazek výběhu (ms)',         group:'Brankář' },
   { key:'gkClearSpeed',  def:700,  min:200, max:1400, step:20,  label:'Síla vykopnutí při výběhu',   group:'Brankář' },
-  { key:'gkClearSpread', def:40,   min:0,   max:90,   step:5,   label:'Rozptyl vykopnutí (°)',       group:'Brankář' }
+  { key:'gkClearSpread', def:40,   min:0,   max:90,   step:5,   label:'Rozptyl vykopnutí (°)',       group:'Brankář' },
+
+  // Rychlost hráče se mění konečnou rychlostí, ne skokem. accelTime je čas z nuly na maximum,
+  // decelTime čas z maxima na nulu; obojí se počítá z maxima TOHOTO hráče, aby pomalejší hráč
+  // neměl delší rozjezd. accelTime 0 = setrvačnost vypnutá a hra běží přesně jako dřív.
+  { key:'accelTime',     def:0,    min:0,   max:2000, step:20,  label:'Rozběh na plnou (ms)',        group:'Setrvačnost' },
+  { key:'decelTime',     def:400,  min:20,  max:2000, step:20,  label:'Zabrzdění z plné (ms)',       group:'Setrvačnost' }
 ];
 
 // T se mutuje po jednotlivých klíčích, nikdy se nepřiřazuje celé.
