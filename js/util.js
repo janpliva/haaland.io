@@ -202,15 +202,41 @@ export function ballAtT(t, v0, b){
   var s = t < tStop ? v0*t - 0.5*T.friction*t*t : v0*v0/(2*T.friction);
   return { x: b.x + b.vx/v0*s, y: b.y + b.vy/v0*s };
 }
+// Kolik hráč nejvýš urazí za čas t směrem k bodu q. Bez setrvačnosti je to sp*t — s ní se
+// musí započítat rozjezd i to, že teď může jet úplně jinam.
+// ODVOZENÍ: u = průmět současné rychlosti do směru k q (záporné = jede od cíle). Zrychluje
+// tempem a = speedOf/accelTime a přes speedOf se nedostane, takže maxima dosáhne v čase
+//     t1 = (sp - u)/a
+// a ujde
+//     t <= t1:  u*t + a*t²/2
+//     t >  t1:  u*t1 + a*t1²/2 + sp*(t - t1)
+// Otáčka se počítá stejným tempem `a`, protože driveMove při povelu na plnou rychlost vybírá
+// accelTime (|požadovaná| > |současná|), ne decelTime — tady se tedy nic nepřibližuje.
+// PŘIBLÍŽENÍ: bere se jen složka rychlosti do směru k cíli. Kolmou složku musí hráč taky
+// otočit a driveMove omezuje změnu celého VEKTORU, takže když běží napříč, dojede o kus míň,
+// než odhad slibuje — naměřeno +24,9 j za 0,8 s a +41,4 j za 1,5 s. Ve všech ostatních
+// případech (stojí, běží k cíli, běží od cíle) je odhad přesný na ±3 j. Zbytek pokrývá
+// interceptEff; původní model se mýlil o +78 j z místa a o +316 j při běhu od cíle.
+// Při accelTime 0 se výraz redukuje přesně na původní sp*t*eff (a = 0 → větev bez rampy).
+function reachIn(p, q, t, sp, acc, eff){
+  if(acc <= 0) return sp*t*eff;
+  var dx = q.x - p.x, dy = q.y - p.y, dl = Math.sqrt(dx*dx + dy*dy);
+  var u = dl > 1e-6 ? (p.vx*dx + p.vy*dy)/dl : 0;
+  var t1 = (sp - u)/acc;
+  var s = (t <= t1) ? u*t + acc*t*t/2 : u*t1 + acc*t1*t1/2 + sp*(t - t1);
+  return s*eff;
+}
+
 export function interceptSolve(p, b){
   b = b || ball;
   var v0 = Math.sqrt(b.vx*b.vx + b.vy*b.vy);
   if(v0 < 0.001) return { x:b.x, y:b.y, t: dist(p, b)/Math.max(1, speedOf(p)) };
   var tStop = v0 / T.friction, eff = T.interceptEff/100, sp = speedOf(p);
+  var acc = T.accelTime > 0 ? sp/(T.accelTime/1000) : 0;
   for(var t=0; t<=tStop+1.5; t+=0.05){
     var q = ballAtT(t, v0, b);
     // hráč se neotočí okamžitě, takže nepočítá s plnou rychlostí
-    if(dist(p, q) <= sp*t*eff) return { x:q.x, y:q.y, t:t };
+    if(dist(p, q) <= reachIn(p, q, t, sp, acc, eff)) return { x:q.x, y:q.y, t:t };
   }
   var r = ballAtT(tStop, v0, b);                 // nedostižitelný → aspoň místo zastavení
   return { x:r.x, y:r.y, t: 1e6 + dist(p, r) };  // 1e6 = seřadí se až za dostižitelné
