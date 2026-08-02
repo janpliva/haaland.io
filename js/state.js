@@ -94,7 +94,11 @@ export function histClear(){
 export function histPush(){
   for(var i=0;i<E.all.length;i++){
     var p = E.all[i], h = p.h;
-    var v = (p === ball.owner) ? (ball.held ? { x:0, y:0 } : { x: p.fx*ball.chaseV, y: p.fy*ball.chaseV })
+    // Se setrvačností je skutečná rychlost přímo na hráči a je hladká už z definice (driveMove
+    // ji mění omezeným tempem), takže se nemusí ničím rekonstruovat. Bez setrvačnosti zůstává
+    // původní odhad: okamžitá rychlost je tam po snímcích usekaná a cíl obránce by cukal.
+    var v = (T.accelTime > 0) ? { x: p.vx, y: p.vy }
+          : (p === ball.owner) ? (ball.held ? { x:0, y:0 } : { x: p.fx*ball.chaseV, y: p.fy*ball.chaseV })
                                : velOver(h, p.x, p.y, S.time);
     h.t[h.i] = S.time; h.x[h.i] = p.x; h.y[h.i] = p.y; h.vx[h.i] = v.x; h.vy[h.i] = v.y;
     h.i = (h.i + 1) % HN;
