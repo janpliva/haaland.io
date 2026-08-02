@@ -153,7 +153,12 @@ export function moveTo(p, tx, ty, sp, dt){
     p.vx = ax/dt; p.vy = ay/dt;          // ať je vektor rychlosti platný i s vypnutou setrvačností
     return;
   }
-  driveMove(p, d > 0.001 ? dx/d : p.fx, d > 0.001 ? dy/d : p.fy, Math.min(sp, d/dt), dt);
+  // Dojezd na cíl: bez brzdné dráhy hráč cíl přejede a několikrát ho překmitne (naměřeno
+  // 16,7 jednotky a tři přejezdy). sqrt(2*a*d) je rychlost, ze které se ještě stihne zabrzdit
+  // na vzdálenosti d při zpomalení a = speedOf/decelTime — klasická brzdná dráha v²=2ad.
+  var dec = speedOf(p)/(T.decelTime/1000);
+  var want = Math.min(sp, d/dt, Math.sqrt(2*dec*d));
+  driveMove(p, d > 0.001 ? dx/d : p.fx, d > 0.001 ? dy/d : p.fy, want, dt);
 }
 
 // vzdálenost bodu od úsečky — test, jestli je přihrávka/střela průchozí
