@@ -4,7 +4,7 @@ import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField
          histPush, locked } from './state.js';
 import { foesOf, speedOf, stealR, inOwnBox, bufferInput, updateClaim, lungeStep, lungeActive,
          carryChase, startKick, holdBall, doPass, pickChasers, rollDist,
-         driveMove } from './util.js';
+         driveMove, refreshPeakGap } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
 import { attack } from './ai-off.js';
 import { defend } from './ai-def.js';
@@ -141,6 +141,7 @@ function step(dt){
 
   // pojistka: mezera nikdy nemá přesáhnout dvojnásobek odvozeného vrcholu. Nic se nespravuje —
   // jen se to zaznamená i se stavem, který to způsobil, ať je vidět, že se to stalo.
+  refreshPeakGap();
   if(ball.owner && !ball.held){
     var gap = dist(ball.owner, ball);
     if(gap > 2*ball.peakGap){

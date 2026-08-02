@@ -60,6 +60,20 @@ export function startKick(o, nx, ny, m){
   ball.vx = nx*(v + rel); ball.vy = ny*(v + rel);
   ball.peakGap = CONTACT + rel*rel/(2*Math.max(1, T.friction));
 }
+// Odvozený vrchol mezery platí, dokud držitel drží rychlost z okamžiku kopu. Se setrvačností
+// ji nedrží: když během cyklu brzdí, míč se od něj vzdaluje relativní rychlostí, se kterou
+// původní odvození nepočítalo, a pojistka hlásí planý poplach (naměřeno 78,9 proti prahu 51,6,
+// 17 hlášek za jeden běh). Vrchol se proto přepočítá z AKTUÁLNÍ relativní rychlosti stejným
+// vzorcem: co ještě uteče, než tření relativní rychlost sežere, je rel²/(2*friction).
+export function refreshPeakGap(){
+  var o = ball.owner;
+  if(!o || ball.held || !(T.accelTime > 0)) return;
+  var bv = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+  var ov = Math.sqrt(o.vx*o.vx + o.vy*o.vy);
+  var rel = Math.max(0, bv - ov);
+  var peak = dist(o, ball) + rel*rel/(2*Math.max(1, T.friction));
+  if(peak > ball.peakGap) ball.peakGap = peak;
+}
 export function holdBall(o){
   ball.held = true; ball.chaseV = 0;
   ball.vx = ball.vy = 0;              // míč zůstane ležet přesně tam, kde je — u nohy
