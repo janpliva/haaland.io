@@ -57,6 +57,11 @@ export function startKick(o, nx, ny, m){
   var v = speedOf(o)*m, rel = T.touchPush*m;
   ball.held = false;
   ball.chaseV = v;
+  // Výchylka sticku pro TENHLE cyklus. Mezi doteky stick nemění směr ani rychlost — tohle je
+  // ta samá zavázanost, jen pro velikost. Ukládá se ZÁMĚR (bsf), ne síla předkopu m: m je
+  // zastropovaná skutečnou rychlostí, takže rozjíždějící se hráč by si tím sám zakázal
+  // zrychlit. Záměr je vstup, nekrmí se sám sebou — na rozdíl od chaseV, které se zaseklo.
+  ball.chaseM = o.bsf || 0;
   ball.vx = nx*(v + rel); ball.vy = ny*(v + rel);
   ball.peakGap = CONTACT + rel*rel/(2*Math.max(1, T.friction));
 }
@@ -75,7 +80,7 @@ export function refreshPeakGap(){
   if(peak > ball.peakGap) ball.peakGap = peak;
 }
 export function holdBall(o){
-  ball.held = true; ball.chaseV = 0;
+  ball.held = true; ball.chaseV = 0; ball.chaseM = 0;
   ball.vx = ball.vy = 0;              // míč zůstane ležet přesně tam, kde je — u nohy
   ball.peakGap = CONTACT;
 }
@@ -108,13 +113,17 @@ export function carryChase(dt){
     o.sf = full > 0 ? Math.min(1, Math.sqrt(ax*ax + ay*ay)/full) : 0;
     o.vx = ax/dt; o.vy = ay/dt;
   } else {
-    // Cílová rychlost je ZÁMĚR (bsf), ne ball.chaseV: chaseV je snímek rychlosti z okamžiku
-    // kopu, a kdyby se držel jako povel, nemohl by držitel nikdy zrychlit — každý další kop
-    // by si vzal rychlost z toho zaseknutí. Změřeno: natrvalo zaseknutý na 4,2 j/s.
+    // Rychlost doběhu je záměr VZORKOVANÝ PŘI DOTEKU, ne živý stick. Živý stick tu byl chyba:
+    // zvednutí prstu je gesto přihrávky, ale zároveň nuluje požadavek na pohyb, takže se
+    // držitel zastavil uprostřed cyklu před míčem, který si právě předkopl — dotek nepřišel a
+    // nachystaná přihrávka nikdy neodešla. Držet vzorek je i konzistentní: mezi doteky stick
+    // nemění směr, takže nesmí měnit ani rychlost.
+    // Není to návrat zaseknutí ze 2. kroku: to bylo z chaseV, což je DOSAŽENÁ rychlost a krmila
+    // se sama sebou. chaseM je vstup a žádnou zpětnou vazbu nemá.
     // Bez ořezu na d/dt: původní min(chaseV*dt, d) jen bránil přeskočení míče v jednom snímku,
     // ale jako POVEL by držitele u míče pokaždé přibrzdil a cyklus doteku by se rozpadl na
     // mikrodotyky (naměřeno 0,050 s místo 0,483 s, míč se nikdy nedostal dál než 25).
-    driveMove(o, nx, ny, speedOf(o)*(o.bsf||0), dt);
+    driveMove(o, nx, ny, speedOf(o)*ball.chaseM, dt);
   }
 }
 

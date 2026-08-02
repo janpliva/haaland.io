@@ -22,6 +22,7 @@ export const ball = { x:0, y:0, vx:0, vy:0, owner:null, gained:0,
                       // cyklus doteku: míč je pořád obyčejná fyzika, nikdy přilepený
                       held:false,                  // držitel stojí, míč leží u nohy
                       chaseV:0,                    // rychlost doběhu držitele pro tenhle cyklus
+                      chaseM:0,                    // výchylka sticku vzorkovaná při doteku, drží se celý cyklus
                       peakGap:0,                   // odvozený vrchol mezery — jen na kontrolu
                       claim:null, claimX:0, claimY:0,   // kdo si volný míč narokoval a kam se vrhá
                       lungeNeed:0,                 // jakou rychlost si to cuknutí právě žádá
@@ -195,7 +196,7 @@ export function reset(kickTeam){
   // rozehrává inkasující tým
   var starter = kickTeam === 'b' ? E.blue[0] : E.red[0];
   ball.vx = ball.vy = 0; ball.owner = starter; ball.gained = S.time;
-  ball.pending = null; ball.held = true; ball.chaseV = 0; ball.peakGap = CONTACT;
+  ball.pending = null; ball.held = true; ball.chaseV = 0; ball.chaseM = 0; ball.peakGap = CONTACT;
   ball.claim = null;
   ball.x = starter.x + starter.fx*CONTACT;
   ball.y = starter.y + starter.fy*CONTACT;
