@@ -44,8 +44,8 @@ export const TUNABLES = [
   { key:'aimLen',        def:33,   min:5,   max:100,  step:1,   label:'Délka linky míření (%)',      group:'Přihrávka' },
   { key:'aiArrive',      def:220,  min:50,  max:500,  step:10,  label:'Dojezdová rychlost přihrávky AI', group:'Přihrávka' },
   // přihrávka se odehraje až při nejbližším doteku; po tomhle čase se nachystaná zahodí
-  { key:'passQueueMax',  def:700,  min:200, max:2000, step:50,  label:'Nejdelší čekání na přihrávku (ms)', group:'Přihrávka' },
-  { key:'passLead',      def:90,   min:0,   max:300,  step:5,   label:'Přihrávka před hráče',        group:'Přihrávka' },
+  { key:'passQueueMax',  def:1700,  min:200, max:2000, step:50,  label:'Nejdelší čekání na přihrávku (ms)', group:'Přihrávka' },
+  { key:'passLead',      def:150,   min:0,   max:300,  step:5,   label:'Přihrávka před hráče',        group:'Přihrávka' },
 
   // Velikost joysticku a kde začíná nabíjení přihrávky.
   { key:'joyR',          def:70,   min:40,  max:100,  step:2,   label:'Velikost joysticku',          group:'Joystick' },
@@ -74,18 +74,28 @@ export const TUNABLES = [
   // po kličce je defReact dlouho zavázaný ve starém směru (viz perceivedFoe/perceivedBall
   // v util.js). Platí na presink, hlídání, obrannou linii i spouštění presinku, stejně pro
   // oba týmy. NEplatí na vlastní tým, brankáře (má gkReaction) ani na odebrání.
-  { key:'defReact',      def:600,  min:0,   max:1200, step:10,  label:'Reakční čas obránce (ms)',    group:'Obrana' },
+  { key:'defReact',      def:200,  min:0,   max:1200, step:10,  label:'Reakční čas obránce (ms)',    group:'Obrana' },
 
   // Brankář chytá tělem; tohle řídí jen postavení, reakci, zákrok a rozehrávku.
   { key:'gkDepth',       def:55,   min:0,   max:160,  step:5,   label:'Vysunutí brankáře',           group:'Brankář' },
-  { key:'gkReaction',    def:180,  min:0,   max:500,  step:10,  label:'Reakce brankáře (ms)',        group:'Brankář' },
-  { key:'gkError',       def:25,   min:0,   max:200,  step:5,   label:'Nepřesnost brankáře',         group:'Brankář' },
-  { key:'gkDiveSpeed',   def:160,  min:100, max:300,  step:5,   label:'Rychlost zákroku (%)',        group:'Brankář' },
-  { key:'gkParrySpeed',  def:520,  min:200, max:1000, step:20,  label:'Rychlost odrazu místo chycení', group:'Brankář' },
-  { key:'gkParryKeep',   def:45,   min:10,  max:90,   step:5,   label:'Síla odrazu (%)',             group:'Brankář' },
+  { key:'gkReaction',    def:120,  min:0,   max:500,  step:10,  label:'Reakce brankáře (ms)',        group:'Brankář' },
+  { key:'gkError',       def:15,   min:0,   max:200,  step:5,   label:'Nepřesnost brankáře',         group:'Brankář' },
+  { key:'gkDiveSpeed',   def:130,  min:100, max:300,  step:5,   label:'Rychlost zákroku (%)',        group:'Brankář' },
+  { key:'gkParrySpeed',  def:400,  min:200, max:1000, step:20,  label:'Rychlost odrazu místo chycení', group:'Brankář' },
+  { key:'gkParryKeep',   def:35,   min:10,  max:90,   step:5,   label:'Síla odrazu (%)',             group:'Brankář' },
   { key:'gkHoldMax',     def:1200, min:300, max:3000, step:100, label:'Držení míče brankářem (ms)',  group:'Brankář' },
   { key:'gkVentureSafe', def:260,  min:80,  max:600,  step:10,  label:'Bezpečná zóna pro výběh',     group:'Brankář' },
-  { key:'gkVenture',     def:150,  min:0,   max:500,  step:10,  label:'Jak daleko smí brankář vyjet', group:'Brankář' }
+  { key:'gkVenture',     def:300,  min:0,   max:500,  step:10,  label:'Jak daleko smí brankář vyjet', group:'Brankář' },
+
+  // Výběh: brankář vyrazí proti soupeři s míčem a při doteku ho vykopne. Je to sázka —
+  // po dobu závazku se nedá odvolat, takže obejít se dá. gkRushDist 0 celý výběh vypne.
+  { key:'gkRushDist',    def:320,  min:0,   max:900,  step:10,  label:'Výběh brankáře — vzdálenost', group:'Brankář' },
+  { key:'gkRushLoneDist',def:520,  min:0,   max:900,  step:10,  label:'Výběh brankáře — sám na bránu', group:'Brankář' },
+  { key:'gkRushSpeed',   def:130,  min:80,  max:250,  step:5,   label:'Rychlost výběhu (%)',         group:'Brankář' },
+  { key:'gkRushMax',     def:420,  min:0,   max:900,  step:10,  label:'Jak daleko smí brankář vyběhnout', group:'Brankář' },
+  { key:'gkRushCommit',  def:380,  min:0,   max:1200, step:20,  label:'Závazek výběhu (ms)',         group:'Brankář' },
+  { key:'gkClearSpeed',  def:700,  min:200, max:1400, step:20,  label:'Síla vykopnutí při výběhu',   group:'Brankář' },
+  { key:'gkClearSpread', def:40,   min:0,   max:90,   step:5,   label:'Rozptyl vykopnutí (°)',       group:'Brankář' }
 ];
 
 // T se mutuje po jednotlivých klíčích, nikdy se nepřiřazuje celé.

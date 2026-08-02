@@ -104,7 +104,10 @@ the check is against the ball, a big touch is genuinely riskier than a small one
 the intended cost of `touchPush`.
 
 `STEAL_LOCK` (0.5 s) stops the ball ping-ponging: whoever just lost it cannot take it back
-for half a second. `doPass` uses the same `lockedPlayer`/`lockOut` pair with 0.32 s.
+for half a second. `doPass` uses the same `lockedPlayer`/`lockOut` pair with 0.32 s. A rush
+clearance needs to lock *two* players at once — the beaten carrier and the keeper who just
+kicked it — so `gkCleared`/`gkClearOut` is a second, independent pair; `locked(p)` in
+`state.js` answers for both and every lock test goes through it.
 
 The nearest defender chases the **ball's** position, not the carrier's. Since players have
 no collision with each other, the only thing protecting the ball is distance.
@@ -435,6 +438,43 @@ controlled player live, so without this every aim sprinted him off at full speed
 (36 css px) over a half-second aim. It costs no control, because the movement band
 (0–`joyR`) and the aim band (past `passThresh`) do not overlap — 70 px versus 85 px.
 
+### The keeper's rush
+A keeper charges an opposing carrier and clears the ball on body contact. It is a gamble, not
+a bigger save radius: he leaves an empty net behind him.
+
+- **Trigger.** An opponent owns the ball and is either inside `gkRushDist` of the keeper's own
+  goal, or inside `gkRushLoneDist` and *through on goal* — no team-mate of the carrier passes
+  `laneClear` from the ball, and no outfielder of the keeper's team lies on the ball→goal
+  segment (the keeper himself does not count as cover). `gkRushDist` 0 disables the whole
+  thing and is bit-identical to the behaviour before it existed.
+- **Commitment.** Once away he cannot abort for `gkRushCommit`. After that he drops the rush
+  if the ball is no longer an opponent's, if the carrier has retreated past the trigger
+  distance plus 80, or if he is at `gkRushMax` with the ball moving away.
+- **The run.** He goes at the ball at `gkRushSpeed` % of his speed, out of the box if need be,
+  never further than `gkRushMax` from his own goal centre — at that limit the target is
+  clipped onto the circle, so he slides along it rather than stopping.
+- **Contact clears, it does not catch.** `rushClear` sends the ball away from his own goal at
+  `gkClearSpeed` with up to `gkClearSpread` degrees of spread. Deliberately separate from
+  `parry`, which is a shot striking a keeper. It runs in `step()` **before** the steal check,
+  because `stealR` (18) is shorter than `CONTACT` (25) and the keeper would otherwise simply
+  steal the ball before his body ever reached it. The steal check itself is untouched.
+- **A shot outranks the rush.** Ordering in `playKeeper`: shot detection, then the save once
+  `gkReaction` has elapsed (which cancels the rush), then the rush, then normal positioning.
+  Inside the reaction window the rush continues — a keeper who has committed forward and has
+  not yet reacted is exactly the mistake the attacker earns.
+
+**Committed to a direction, not to a target.** During the commitment window he runs at the
+point where the ball was when he set off, not at the live ball. Without this the rush is a
+homing missile: he moves at 130 % of the attacker's speed and re-aims every frame, so he is
+literally unbeatable — measured 100 % clearances in every cell, with `gkRushCommit` making no
+difference at all. There is no momentum in this game, so forbidding an *abort* costs him
+nothing; only a stale target does.
+
+The window has to outlast the touch cycle. A stick change reaches the ball only at the next
+contact, a median 250 ms into a 500 ms cycle, so at `gkRushCommit` 380 a cut lands with about
+130 ms of commitment left — worth roughly 26 units of separation against a 25-unit contact
+radius. Measured, rounding him works 2 % of the time at 380, 53 % at 600 and 87 % at 800.
+
 ### Lane-based teammate runs
 `assignRoles()` sorts non-carrier teammates by current x and gives each
 one a lane `(k + 0.5) / n` across the field width, alternating `band`: even index = forward
@@ -634,6 +674,13 @@ these values. They are hand-tuned by playing — do not change one without being
 | `gkHoldMax` | 1200 | 300–3000 (100) | ms | How long the keeper is unstealable inside his own box. |
 | `gkVentureSafe` | 260 | 80–600 (10) | units | No opponent this close means he may dribble out. |
 | `gkVenture` | 150 | 0–500 (10) | units | How far beyond the box he may carry the ball. |
+| `gkRushDist` | 320 | 0–900 (10) | units | Carrier this close to goal and the keeper charges out. 0 disables the rush entirely. |
+| `gkRushLoneDist` | 520 | 0–900 (10) | units | Same, for a carrier who is through on goal — no pass on and nobody covering. |
+| `gkRushSpeed` | 130 | 80–250 (5) | % | Speed multiplier while rushing. Above 100 he is faster than the attacker. |
+| `gkRushMax` | 420 | 0–900 (10) | units | Hard limit on how far from his own goal centre a rush may take him. |
+| `gkRushCommit` | 380 | 0–1200 (20) | ms | How long a rush cannot be aborted, and how long he runs at a stale target. This is the whole beatability knob; needs to exceed the 500 ms touch cycle to matter. |
+| `gkClearSpeed` | 700 | 200–1400 (20) | units/s | Speed of the clearance when a rushing keeper reaches the ball. |
+| `gkClearSpread` | 40 | 0–90 (5) | degrees | Random lateral spread on that clearance. |
 
 There is no positional id mapping any more — rows are generated from `TUNABLES` in order, so
 a new entry can go anywhere and nothing shifts.

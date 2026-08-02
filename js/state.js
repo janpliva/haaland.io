@@ -7,6 +7,10 @@ export const ctx = cv.getContext('2d');
 
 export const S = {
   ctrl:null, time:0, lockOut:0, lockedPlayer:null, lastTeam:'b',
+  // brankář, který právě vykopl po výběhu, a jeho vlastní odpočet — schválně zvlášť od
+  // lockedPlayer/lockOut, aby se ty dva zámky nepřepisovaly (poražený útočník i brankář
+  // musí být zamčení naráz)
+  gkCleared:null, gkClearOut:0,
   kickNext:'b', scoreB:0, scoreR:0, matchOver:false, running:false,
   deadTime:0, roleTimer:0, lastCarrier:null, drawAim:null,
   // odkud se míří a kdo míč podle nároku zpracuje jako první (jednodotyková přihrávka)
@@ -130,6 +134,12 @@ export function resize(){
   S.FIELD_H = S.cssH / S.scale;
 }
 
+// Kdo si teď nesmí sáhnout na míč. Dva nezávislé zámky: kdo míč právě ztratil (lockedPlayer)
+// a brankář, který ho právě vykopl po výběhu (gkCleared).
+export function locked(p){
+  return (p === S.lockedPlayer && S.lockOut > 0) || (p === S.gkCleared && S.gkClearOut > 0);
+}
+
 // dist a clampField bydlí tady, ne v util.js: potřebuje je reset() a jinak by vznikl kruh
 export function dist(a,b){ var dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx+dy*dy); }
 export function clampField(p){
@@ -140,7 +150,7 @@ export function clampField(p){
 // bx/by/bsf = nabufferovaný vstup (stick u člověka, směr k cíli u AI) — projeví se až u doteku
 export function mk(team){ return { x:0, y:0, fx:0, fy:-1, team:team, tx:0, ty:0, think:0,
                             seed:Math.random()*100, sf:0, role:'', plan:null, side:0,
-                            bx:0, by:-1, bsf:0, h:mkHist(),
+                            bx:0, by:-1, bsf:0, h:mkHist(), rush:false, rushT:0, rushX:0, rushY:0,
                             shotOn:false, shotId:0, shotDeadline:0, shotX:0, shotY:0 }; }
 
 export function buildTeams(){
@@ -182,6 +192,8 @@ export function reset(kickTeam){
   ball.y = starter.y + starter.fy*CONTACT;
   S.lastTeam = kickTeam;
   S.ctrl = E.blue[0]; S.lockOut = 0; S.lockedPlayer = null;
+  S.gkCleared = null; S.gkClearOut = 0;
+  E.all.forEach(function(p){ p.rush = false; p.rushT = 0; });
   histClear();                // po přestavení pozic je stará paměť lež, ne zpoždění
   touch.fire = null;          // ať nabitá přihrávka nepřeteče do dalšího pokusu
   hooks.pickChasers();

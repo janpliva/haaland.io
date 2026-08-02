@@ -1,6 +1,6 @@
 // Geometrie, „kdo je kdo" a náběh na míč. Vrstva nad state, pod AI.
 import { T, FIELD_W, PH, CONTACT, dirOf } from './config.js';
-import { S, E, ball, dist, clampField, hooks, histAt } from './state.js';
+import { S, E, ball, dist, clampField, hooks, histAt, locked } from './state.js';
 
 export { dist, clampField };          // ať je zbytek kódu bere z jednoho místa
 
@@ -233,7 +233,7 @@ export function ballPathHits(p){
   return segDist(p.x, p.y, ball.x, ball.y, e.x, e.y) < pickupOf(p);
 }
 export function claimEligible(p){
-  return !(p === S.lockedPlayer && S.lockOut > 0) && p !== ball.owner;
+  return !locked(p) && p !== ball.owner;
 }
 // Každý snímek: drž nárok, dokud je řešitelný, ale pusť ho, když se někdo jiný dostane
 // k míči zřetelně dřív — tak vzniká odchycení přihrávky. Práh 0.05 s brání blikání.
@@ -287,7 +287,7 @@ export function pickChaser(list){
   for(var i=0;i<list.length;i++){
     var p = list[i];
     if(p.role === 'gk') continue;
-    if(p === S.lockedPlayer && S.lockOut > 0) continue;
+    if(locked(p)) continue;
     var t = interceptSolve(p).t;                 // vybírá se podle ČASU, ne vzdálenosti
     if(t < bestT){ bestT = t; best = p; }
   }
@@ -305,7 +305,7 @@ hooks.pickChasers = pickChasers;      // state.reset() ji volá přes tenhle há
 export function chaserOf(list){
   var team = list === E.blue ? 'b' : 'r';
   var c = ball.chaser[team];
-  if(!c || c.role === 'gk' || list.indexOf(c) < 0 || (c === S.lockedPlayer && S.lockOut > 0)){
+  if(!c || c.role === 'gk' || list.indexOf(c) < 0 || locked(c)){
     ball.chaser[team] = c = pickChaser(list);
   }
   return c;
@@ -321,7 +321,7 @@ export function nearestTo(list, tx, ty){
   for(var i=0;i<list.length;i++){
     var p = list[i];
     if(p.role === 'gk') continue;
-    if(p === S.lockedPlayer && S.lockOut > 0) continue;
+    if(locked(p)) continue;
     var dx = p.x - qx, dy = p.y - qy, d = Math.sqrt(dx*dx+dy*dy);
     if(d < bd){ bd = d; best = p; }
   }

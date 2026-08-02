@@ -1,14 +1,14 @@
 // Simulační krok, smyčka a start.
 import { T, FIELD_W, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
 import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField,
-         histPush } from './state.js';
+         histPush, locked } from './state.js';
 import { foesOf, stealR, inOwnBox, bufferInput, updateClaim, lungeStep, lungeActive,
          carryChase, startKick, holdBall, doPass, pickChasers, rollDist } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
 import { attack } from './ai-off.js';
 import { defend } from './ai-def.js';
 import { driveCarrier } from './ai-ball.js';
-import { playKeeper, parry } from './keeper.js';
+import { playKeeper, parry, rushing, rushClear } from './keeper.js';
 import { goal, showScore } from './match.js';
 import { draw } from './render.js';
 import { buildPanel, clearStore } from './ui.js';
@@ -16,6 +16,7 @@ import { buildPanel, clearStore } from './ui.js';
 function step(dt){
   S.time += dt;
   if(S.lockOut > 0) S.lockOut -= dt;
+  if(S.gkClearOut > 0) S.gkClearOut -= dt;
 
   // Paměť držitele se plní tady, ještě než se čímkoli hne — nejnovější vzorek pak odpovídá
   // tomu, co v tomhle snímku čte AI. Čte z ní jen presující obránce (perceivedBall).
@@ -146,6 +147,14 @@ function step(dt){
     }
   }
 
+  // --- výběh: brankář, který doběhl tělem k míči, ho NEZÍSKÁ, ale vykopne pryč ---
+  // Musí to být PŘED odebráním: dosah odebrání (18) je kratší než dotek tělem (25), takže by
+  // brankář jinak míč sebral dřív, než by se k němu vůbec dostal. Samotné odebrání se nemění.
+  if(ball.owner && ball.owner.role !== 'gk'){
+    var rgk = ball.owner.team === 'b' ? E.gkR : E.gkB;
+    if(rushing(rgk) && dist(rgk, ball) <= CONTACT) rushClear(rgk);
+  }
+
   // --- odebrání: soupeř, který se dotkne míče, ho získá (platí i u nohy) ---
   // brankář s míčem ve vlastním vápně je po gkHoldMax nedotknutelný, pak už ne
   var gkSafe = ball.owner && ball.owner.role === 'gk' && inOwnBox(ball.owner)
@@ -153,7 +162,7 @@ function step(dt){
   if(ball.owner && !gkSafe){
     var fo = foesOf(ball.owner);
     for(var s1=0;s1<fo.length;s1++){
-      if(fo[s1] === S.lockedPlayer && S.lockOut > 0) continue;
+      if(locked(fo[s1])) continue;
       if(dist(fo[s1], ball) < stealR(fo[s1])){
         S.lockedPlayer = ball.owner; S.lockOut = STEAL_LOCK;
         ball.owner = fo[s1]; ball.vx = ball.vy = 0; ball.held = true; S.lastTeam = fo[s1].team;
@@ -170,7 +179,7 @@ function step(dt){
     var taker = null, takeD = 1e9;
     for(var k=0;k<E.all.length;k++){
       var p = E.all[k];
-      if(p === S.lockedPlayer && S.lockOut > 0) continue;
+      if(locked(p)) continue;
       var pd = dist(p, ball);
       if(pd <= CONTACT && pd < takeD){ takeD = pd; taker = p; }
     }
