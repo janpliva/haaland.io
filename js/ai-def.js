@@ -13,25 +13,34 @@ export function defend(list, dt){
   var opp = list === E.blue ? E.red : E.blue;
 
   // --- co tenhle blok o soupeři VÍ ---
-  // Každý soupeř se čte se zpožděním defReact, jeden pohled na snímek, ať se presink,
-  // hlídání i linie dívají na to samé. Vlastní tým (rozestup, poslední obránce, drift)
-  // i odebrání v main.js zůstávají živé — zpožděné je jen pozorování soupeře.
-  var see = [], bv = perceivedBall();
-  for(var v=0;v<opp.length;v++) see.push(perceivedFoe(team, opp[v]));
-
-  // --- presink se zapne, až je míč dost blízko vlastní brance ---
-  var bgx = bv.x - ogx, bgy = bv.y - ogy;
-  var bgl = Math.sqrt(bgx*bgx + bgy*bgy) || 1;
-  var pressOn = bgl < T.pressDist;
-  var hx = ogx + bgx/bgl*T.pressDist, hy = ogy + bgy/bgl*T.pressDist;   // kde se čeká
+  // Zpoždění defReact je od hodnocení `defending`, tedy VLASTNOST JEDNOTLIVCE, ne týmu:
+  // každý obránce si obrázek soupeře staví sám a podle svého jede úplně všechno, na co
+  // sahá — koho hlídá, kam presuje, jestli se vůbec presuje a kde má linii. Dva obránci se
+  // proto můžou v jednom snímku neshodnout, a to je záměr.
+  // Vlastní tým (rozestup, poslední obránce, drift) i odebrání v main.js zůstávají živé.
+  //
+  // Jediné, co JEDEN obrázek mít musí, je týmový výběr štváče. Bere se obrázek toho, kdo
+  // za míčem právě jde — on je ten, kdo podle něj taky běží. Než nějaký je, vezme se první
+  // hráč v poli, ať je volba deterministická.
+  var ref = ball.chaser[team];
+  if(!ref || ref.role === 'gk' || list.indexOf(ref) < 0){
+    ref = null;
+    for(var rf=0;rf<list.length;rf++) if(list[rf].role !== 'gk'){ ref = list[rf]; break; }
+  }
+  var rbv = ref ? perceivedBall(ref) : ball;
+  var rbx = rbv.x - ogx, rby = rbv.y - ogy;
+  var rbl = Math.sqrt(rbx*rbx + rby*rby) || 1;
+  var refPress = rbl < T.pressDist;
+  var refHx = ogx + rbx/rbl*T.pressDist, refHy = ogy + rby/rbl*T.pressDist;
 
   // Volný míč i presink jedou přes závazek. Čekání na držícím bodě ale musí vybírat podle
   // TOHO BODU — výběr podle míče se zablokuje: kdo vyrazí, přestane být nejbližší míči,
   // role přeskočí na jiného a k bodu nedojde nikdo (ověřeno, blok stál 20 s na místě).
-  var chaser = (!ball.owner || pressOn) ? chaserOf(list) : nearestTo(list, hx, hy);
+  var chaser = (!ball.owner || refPress) ? chaserOf(list) : nearestTo(list, refHx, refHy);
+  // pool drží INDEXY skutečných soupeřů; každý obránce si je pak přečte přes svůj obrázek
   var pool = [];
   for(var o=0;o<opp.length;o++){
-    if(opp[o] !== ball.owner && opp[o].role !== 'gk') pool.push(see[o]);
+    if(opp[o] !== ball.owner && opp[o].role !== 'gk') pool.push(o);
   }
 
   // --- poslední obránce: nejhlubší hráč týmu, role se drží, ať nepřeskakuje ---
@@ -48,33 +57,40 @@ export function defend(list, dt){
   }
   var lm = lastMan[team];
 
-  // --- obranná linie podle nejhlubšího soupeře ---
-  var deepFoe = null, dfP = -1e9;
-  for(var f=0;f<opp.length;f++){
-    if(opp[f].role === 'gk') continue;
-    var fp = see[f].y * gdir;
-    if(fp > dfP){ dfP = fp; deepFoe = see[f]; }
-  }
-  var lineY = deepFoe ? deepFoe.y + gdir*T.lineGap : ogy;
-
   for(var k=0;k<list.length;k++){
     var r = list[k];
     if(r === S.ctrl || r.role === 'gk') continue;
+
+    // --- obrázek TOHOTO obránce: jeden pohled na soupeře na snímek, pak už jen čtení ---
+    var bv = perceivedBall(r);
     if(r === chaser){
-      // Presink běží podle toho, co držitel dělal před defReact ms (bv). Volný míč se
+      // Presink běží podle toho, co držitel dělal před jeho defReact ms (bv). Volný míč se
       // nezpožďuje — to není hlídání hráče, ale závod o balon — a odebrání v main.js
       // pořád počítá se skutečnou polohou míče.
-      if(!ball.owner || pressOn){
+      var cbx = bv.x - ogx, cby = bv.y - ogy, cbl = Math.sqrt(cbx*cbx + cby*cby) || 1;
+      if(!ball.owner || cbl < T.pressDist){
         var ipd = interceptPoint(r, bv); moveTo(r, ipd.x, ipd.y, speedOf(r), dt, true);
       }
       // mimo dosah nevybíhá — čeká na spojnici míč–vlastní branka, blok se nerozbije
-      else moveTo(r, hx, hy, speedOf(r)*0.9, dt);
+      else moveTo(r, ogx + cbx/cbl*T.pressDist, ogy + cby/cbl*T.pressDist, speedOf(r)*0.9, dt);
       continue;
     }
+    var see = [];
+    for(var v=0;v<opp.length;v++) see.push(perceivedFoe(r, opp[v]));
+
+    // --- obranná linie podle nejhlubšího soupeře, jak ho vidí ON ---
+    var deepFoe = null, dfP = -1e9;
+    for(var f=0;f<opp.length;f++){
+      if(opp[f].role === 'gk') continue;
+      var fp = see[f].y * gdir;
+      if(fp > dfP){ dfP = fp; deepFoe = see[f]; }
+    }
+    var lineY = deepFoe ? deepFoe.y + gdir*T.lineGap : ogy;
+
     var tgt = null, ti = -1, tdBest = 1e9;
     for(var q=0;q<pool.length;q++){
-      var td = dist(r, pool[q]);
-      if(td < tdBest){ tdBest = td; ti = q; tgt = pool[q]; }
+      var td = dist(r, see[pool[q]]);
+      if(td < tdBest){ tdBest = td; ti = q; tgt = see[pool[q]]; }
     }
     if(!tgt){ var ipf = interceptPoint(r, bv); moveTo(r, ipf.x, ipf.y, speedOf(r)*0.85, dt, true); continue; }
     pool.splice(ti, 1);

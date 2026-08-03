@@ -2,7 +2,7 @@
 import { T, FIELD_W, STEAL_LOCK, dirOf } from './config.js';
 import { S, E, ball } from './state.js';
 import { speedOf, moveTo, boxD, clampToBox, ballAtT, pickChasers, kickPlan,
-         laneClear, matesOf, segDist } from './util.js';
+         laneClear, matesOf, segDist, stat } from './util.js';
 
 let shotSeq = 0;
 const RUSH_DROP = 80;        // o kolik dál než spouštěč musí držitel couvnout, aby výběh skončil
@@ -111,8 +111,8 @@ export function playKeeper(g, dt){
   if(goalBound(g)){
     if(!g.shotOn){
       shotSeq++; g.shotOn = true; g.shotId = shotSeq;
-      g.shotDeadline = S.time + T.gkReaction/1000;
-      g.shotX = crossX(g.y) + (Math.random()*2 - 1)*T.gkError;
+      g.shotDeadline = S.time + stat(g, 'gkReaction')/1000;
+      g.shotX = crossX(g.y) + (Math.random()*2 - 1)*stat(g, 'gkError');
       g.shotY = g.y;
     }
   } else g.shotOn = false;
@@ -123,7 +123,7 @@ export function playKeeper(g, dt){
     // ještě nezareagoval, je právě ta chyba, kterou si útočník zasloužil.
     g.rush = false; g.rushT = 0;
     var s = clampToBox(g, g.shotX, g.shotY);
-    moveTo(g, s.x, s.y, speedOf(g)*(T.gkDiveSpeed/100), dt);
+    moveTo(g, s.x, s.y, speedOf(g)*(stat(g, 'gkDiveSpeed')/100), dt);
     return;
   }
 
@@ -142,7 +142,7 @@ export function playKeeper(g, dt){
     var rx = bx - gl.x, ry = by - gl.y;
     var RL = Math.sqrt(rx*rx + ry*ry) || 1, tx = bx, ty = by;
     if(RL > T.gkRushMax){ tx = gl.x + rx/RL*T.gkRushMax; ty = gl.y + ry/RL*T.gkRushMax; }
-    moveTo(g, tx, ty, speedOf(g)*(T.gkRushSpeed/100), dt);
+    moveTo(g, tx, ty, speedOf(g)*(stat(g, 'gkRushSpeed')/100), dt);
     return;
   }
 
@@ -170,5 +170,5 @@ export function keeperPlan(p, press, dir){
     var ogk = p.team === 'b' ? S.FIELD_H : 0;
     return { kick:false, x: p.x, y: ogk + dir*(boxD() + T.gkVenture) };
   }
-  return kickPlan((Math.random()-0.5)*600, dir*900);
+  return kickPlan(p, (Math.random()-0.5)*600, dir*900);
 }

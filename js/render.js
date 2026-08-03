@@ -71,6 +71,18 @@ export function draw(){
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2;
       ctx.strokeRect(X(p.x-hw), X(p.y-PH), X(hw*2), X(PH*2));
     }
+    // číslo na dresu; brankář místo čísla dostane tečku, ať je poznat i bez barvy.
+    // Čistě vykreslení — simulace `num` nikde nečte, takže na hru nemá vliv.
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if(p.role === 'gk'){
+      ctx.beginPath();
+      ctx.arc(X(p.x), X(p.y), X(PH*0.28), 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fill();
+    } else {
+      ctx.font = 'bold ' + X(PH*1.35).toFixed(1) + 'px system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.fillText(String(p.num), X(p.x), X(p.y));
+    }
     // ovládaný hráč: kroužek, ne výplň, a menší než odsazení míče (24.83) — vyplněný kotouč
     // o poloměru PH*1.9 míč pohltil a hráč s míčem vypadal jako jedna skvrna.
     // Kreslí se až po těle, jinak by ho čtverec překryl.

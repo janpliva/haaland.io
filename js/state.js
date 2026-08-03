@@ -1,6 +1,6 @@
 // Veškerý měnitelný stav hry. Importy jsou v modulech jen pro čtení, takže všechno,
 // co se přiřazuje z víc míst, musí žít jako VLASTNOST objektu — proto S, E, ball, touch.
-import { T, FIELD_W, PH, CONTACT, dirOf } from './config.js';
+import { T, FIELD_W, PH, CONTACT, dirOf, mkRatings, resolveRatings } from './config.js';
 
 export const cv = document.getElementById('c');
 export const ctx = cv.getContext('2d');
@@ -158,17 +158,25 @@ export function clampField(p){
 }
 
 // bx/by/bsf = nabufferovaný vstup (stick u člověka, směr k cíli u AI) — projeví se až u doteku
-export function mk(team){ return { x:0, y:0, fx:0, fy:-1, team:team, tx:0, ty:0, think:0,
-                            seed:Math.random()*100, sf:0, role:'', plan:null, side:0,
-                            bx:0, by:-1, bsf:0, vx:0, vy:0, h:mkHist(), rush:false, rushT:0, rushX:0, rushY:0,
-                            shotOn:false, shotId:0, shotDeadline:0, shotX:0, shotY:0 }; }
+// ratings = hodnocení 0–99, všechno 50 (viz config.js). `mul` jsou z nich předpočítané
+// násobitele; čte je stat(). Číslo na dresu je jen k vykreslení, simulace ho nikde nečte.
+export function mk(team, role, num){
+  var p = { x:0, y:0, fx:0, fy:-1, team:team, tx:0, ty:0, think:0,
+            seed:Math.random()*100, sf:0, role:role || '', num:num || 0, plan:null, side:0,
+            bx:0, by:-1, bsf:0, vx:0, vy:0, h:mkHist(), rush:false, rushT:0, rushX:0, rushY:0,
+            shotOn:false, shotId:0, shotDeadline:0, shotX:0, shotY:0,
+            ratings:mkRatings(role), mul:null };
+  resolveRatings(p);
+  return p;
+}
 
 export function buildTeams(){
   E.blue = []; E.red = [];
-  for(var i=0;i<T.teamSize;i++) E.blue.push(mk('b'));
-  for(var j=0;j<T.foeSize;j++) E.red.push(mk('r'));
-  E.gkB = mk('b'); E.gkB.role = 'gk'; E.blue.push(E.gkB);   // brankář se nepočítá do velikosti týmu
-  E.gkR = mk('r'); E.gkR.role = 'gk'; E.red.push(E.gkR);
+  for(var i=0;i<T.teamSize;i++) E.blue.push(mk('b', '', i+1));
+  for(var j=0;j<T.foeSize;j++) E.red.push(mk('r', '', j+1));
+  // brankář se nepočítá do velikosti týmu ani do číslování — má vlastní značku
+  E.gkB = mk('b', 'gk'); E.blue.push(E.gkB);
+  E.gkR = mk('r', 'gk'); E.red.push(E.gkR);
   E.all = E.blue.concat(E.red);
 }
 

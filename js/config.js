@@ -16,14 +16,13 @@ export const TUNABLES = [
   { key:'teamSize',      def:5,    min:1,   max:6,    step:1,   label:'Hráčů v mém týmu',            group:'Týmy', rebuild:true },
   { key:'foeSize',       def:5,    min:1,   max:6,    step:1,   label:'Hráčů v týmu soupeře',        group:'Týmy', rebuild:true },
 
-  // Maximální rychlosti. Ovládaný hráč má vlastní, AI zvlášť pro každý tým.
-  { key:'playerSpeed',   def:200,  min:120, max:320,  step:5,   label:'Rychlost ovládaného hráče',   group:'Pohyb' },
-  { key:'mateSpeed',     def:200,  min:100, max:320,  step:5,   label:'Rychlost spoluhráče (AI)',    group:'Pohyb' },
-  { key:'foeSpeed',      def:200,  min:100, max:320,  step:5,   label:'Rychlost soupeřů (AI)',       group:'Pohyb' },
+  // Jedna základní rychlost pro všechny. Rozdíl mezi hráči i mezi týmy dělá hodnocení
+  // `speed` (viz STAT_SCALE níž), ne druhá konstanta — tím zmizí celá třída tichých
+  // asymetrií, kdy se jeden tým ladil a druhý ne.
+  { key:'speedBase',     def:200,  min:120, max:320,  step:5,   label:'Základní rychlost hráče',     group:'Pohyb' },
 
   // Jak se míč chová u nohy: kdo ho kdy má, jak daleko se předkopává a jak tvrdě poslouchá.
-  { key:'pickupMate',    def:40,   min:16,  max:90,   step:1,   label:'Dosah zpracování — můj tým',  group:'Míč' },
-  { key:'foePickup',     def:40,   min:16,  max:90,   step:1,   label:'Dosah zpracování — soupeř',   group:'Míč' },
+  { key:'pickupBase',    def:40,   min:16,  max:90,   step:1,   label:'Základní dosah zpracování',   group:'Míč' },
   { key:'tackleR',       def:3,   min:0,   max:60,   step:1,   label:'Dosah odebrání',              group:'Míč' },
   // Driblink je FYZIKÁLNÍ: při kontaktu se míč kopne rychlostí v + touchPush*m, pak se sám
   // kutálí a brzdí třením, zatímco držitel automaticky běží NA MÍČ rychlostí v. Cyklus končí
@@ -56,9 +55,12 @@ export const TUNABLES = [
   { key:'targetGoals',   def:5,    min:1,   max:15,   step:1,   label:'Hraje se do N gólů',          group:'Hřiště a zápas' },
 
   // Rozhodování hráče s míčem a náběhy bez míče.
-  { key:'shootRange',    def:700,  min:200, max:1600, step:20,  label:'Odkud AI střílí',             group:'Útok AI' },
+  { key:'shootRange',    def:400,  min:200, max:1600, step:20,  label:'Odkud AI střílí',             group:'Útok AI' },
   { key:'soloLane',      def:50,   min:20,  max:160,  step:5,   label:'Sólo koridor',                group:'Útok AI' },
-  { key:'foeError',      def:0,    min:0,   max:35,   step:1,   label:'Nepřesnost AI (°)',           group:'Útok AI' },
+  // Nepřesnost přihrávky. Základ je 3, ne 0, aby hodnocení `passing` mělo kam růst i kam
+  // klesat: na 0 by padesátka znamenala absolutní přesnost a nad ní by se nedalo zlepšit.
+  // Platí i na přihrávku člověka — odehrává se až v doPass, takže ji dopředu nevidíš.
+  { key:'foeError',      def:3,    min:0,   max:35,   step:1,   label:'Nepřesnost přihrávky (°)',    group:'Útok AI' },
   { key:'runDepth',      def:120,  min:0,   max:400,  step:5,   label:'Hloubka náběhu za obranu',    group:'Útok AI' },
   { key:'interceptEff',  def:90,   min:50,  max:100,  step:1,   label:'Účinnost náběhu na míč (%)',  group:'Útok AI' },
   { key:'planHold',      def:500,  min:100, max:1500, step:50,  label:'Držení plánu AI (ms)',        group:'Útok AI' },
@@ -74,7 +76,7 @@ export const TUNABLES = [
   // po kličce je defReact dlouho zavázaný ve starém směru (viz perceivedFoe/perceivedBall
   // v util.js). Platí na presink, hlídání, obrannou linii i spouštění presinku, stejně pro
   // oba týmy. NEplatí na vlastní tým, brankáře (má gkReaction) ani na odebrání.
-  { key:'defReact',      def:200,  min:0,   max:1200, step:10,  label:'Reakční čas obránce (ms)',    group:'Obrana' },
+  { key:'defReact',      def:80,  min:0,   max:1200, step:10,  label:'Reakční čas obránce (ms)',    group:'Obrana' },
 
   // Brankář chytá tělem; tohle řídí jen postavení, reakci, zákrok a rozehrávku.
   { key:'gkDepth',       def:55,   min:0,   max:160,  step:5,   label:'Vysunutí brankáře',           group:'Brankář' },
@@ -100,11 +102,87 @@ export const TUNABLES = [
   // Rychlost hráče se mění konečnou rychlostí, ne skokem. accelTime je čas z nuly na maximum,
   // decelTime čas z maxima na nulu; obojí se počítá z maxima TOHOTO hráče, aby pomalejší hráč
   // neměl delší rozjezd. accelTime 0 = setrvačnost vypnutá a hra běží přesně jako dřív.
-  { key:'accelTime',     def:0,    min:0,   max:2000, step:20,  label:'Rozběh na plnou (ms)',        group:'Setrvačnost' },
-  { key:'decelTime',     def:400,  min:20,  max:2000, step:20,  label:'Zabrzdění z plné (ms)',       group:'Setrvačnost' }
+  { key:'accelTime',     def:300,    min:0,   max:2000, step:20,  label:'Rozběh na plnou (ms)',        group:'Setrvačnost' },
+  { key:'decelTime',     def:20,  min:20,  max:2000, step:20,  label:'Zabrzdění z plné (ms)',       group:'Setrvačnost' }
 ];
 
 // T se mutuje po jednotlivých klíčích, nikdy se nepřiřazuje celé.
 export const T = {};
 export const DEFAULTS = {};
 for(const t of TUNABLES){ T[t.key] = t.def; DEFAULTS[t.key] = t.def; }
+
+// ---- hodnocení hráčů ----
+// Každý hráč v poli má šest hodnocení 0–99, brankář čtyři. Hodnocení 50 znamená PŘESNĚ tu
+// hodnotu, co je nahoře v TUNABLES, takže mužstvo samých padesátek hraje bit po bitu jako
+// hra bez hodnocení. Hodnocení konstantu jen ŠKÁLUJÍ, nikdy ji nenahrazují — hra se dál
+// ladí globálně tady a hodnocení jedou s tím, co si nastavíš.
+export const OUTFIELD_STATS = ['speed','accel','dribble','passing','control','defending'];
+export const KEEPER_STATS   = ['reflexes','accuracy','rushing','passing'];
+
+// Rozpětí je ÚZKÉ a je schválně jiné než min/max posuvníku: posuvník slouží k hledání
+// hodnoty a je proto široký až nehratelně, tohle je rozdíl mezi dvěma hráči.
+//   lo  = násobitel při hodnocení 0
+//   hi  = násobitel při hodnocení 99
+//   dir = kterým směrem je vyšší hodnocení lepší; je v datech SCHVÁLNĚ a neodvozuje se
+//         z toho, jestli násobitel klesá (viz kontrola pod tabulkou)
+// Mezi 0–50 a 50–99 se interpoluje lineárně přes přesnou 1.0 na padesátce.
+// Klíčem je konstanta, ne hodnocení: jedno hodnocení může táhnout víc konstant a každá
+// z nich má svůj vlastní směr (viz defending — reakce dolů, dosah odebrání nahoru).
+// Celá tabulka je na jednom místě, takže se rozpětí přeladí jedním editem.
+export const STAT_SCALE = {
+  //                stat          lo(0)   hi(99)   dir
+  speedBase:   { stat:'speed',     lo:0.88, hi:1.12, dir:'higher' },
+  // Rychlost je úzká schválně: ±12 % už je vidět, že rychlejší hráč odjíždí, a širší
+  // rozpětí dělá z nízko hodnoceného hráče nehratelnou překážku.
+  accelTime:   { stat:'accel',     lo:1.50, hi:0.60, dir:'lower'  },
+  touchPush:   { stat:'dribble',   lo:1.35, hi:0.70, dir:'lower'  },
+  // Při základu 3° vyjde hodnocení 0 na 8°, 50 na 3° a 99 na 0° — přesně proto se základ
+  // zvedl z nuly, jinak by nad padesátkou nebylo co zlepšovat.
+  foeError:    { stat:'passing',   lo:8/3,  hi:0,    dir:'lower'  },
+  aiArrive:    { stat:'passing',   lo:0.85, hi:1.15, dir:'higher' },
+  pickupBase:  { stat:'control',   lo:0.80, hi:1.25, dir:'higher' },
+  lungeSpeed:  { stat:'control',   lo:0.80, hi:1.25, dir:'higher' },
+  defReact:    { stat:'defending', lo:1.60, hi:0.50, dir:'lower'  },
+  tackleR:     { stat:'defending', lo:0.50, hi:1.60, dir:'higher' },
+  gkReaction:  { stat:'reflexes',  lo:1.60, hi:0.50, dir:'lower'  },
+  gkError:     { stat:'accuracy',  lo:1.70, hi:0.40, dir:'lower'  },
+  gkDiveSpeed: { stat:'rushing',   lo:0.85, hi:1.15, dir:'higher' },
+  gkRushSpeed: { stat:'rushing',   lo:0.85, hi:1.15, dir:'higher' }
+};
+// `dir` není dekorace: musí sedět s tím, co dělají lo/hi. Kdyby se rozpětí přeladilo a směr
+// se zapomněl otočit, chytí se to při načtení, ne až v zápase.
+for(const k in STAT_SCALE){
+  const s = STAT_SCALE[k];
+  if((s.hi < s.lo) !== (s.dir === 'lower'))
+    console.error('STAT_SCALE: ' + k + ' má dir "' + s.dir + '", ale lo/hi jdou opačně');
+}
+
+export function ratingMul(key, r){
+  var s = STAT_SCALE[key]; if(!s) return 1;
+  r = Math.max(0, Math.min(99, r));
+  return r <= 50 ? s.lo + (1 - s.lo)*(r/50) : 1 + (s.hi - 1)*((r - 50)/49);
+}
+export function mkRatings(role){
+  var list = role === 'gk' ? KEEPER_STATS : OUTFIELD_STATS, r = {};
+  for(var i=0;i<list.length;i++) r[list[i]] = 50;
+  return r;
+}
+// Předpočítá se NÁSOBITEL, ne výsledná hodnota. Násobitel závisí jen na hodnocení, takže se
+// přepočítá při jeho změně, kdežto samotný základ se čte z T až při použití — jinak by
+// posuvník v panelu přestal fungovat, dokud se nepřestaví týmy. Tím padne i celá interpolace
+// z vnitřní smyčky a zůstane jedno násobení, což je stejná cena jako dřívější ternár.
+export function resolveRatings(p){
+  var m = {};
+  for(var key in STAT_SCALE){
+    var s = STAT_SCALE[key];
+    m[key] = (p.ratings && p.ratings[s.stat] !== undefined) ? ratingMul(key, p.ratings[s.stat]) : 1;
+  }
+  p.mul = m;
+}
+// JEDINÝ přístup ke škálované konstantě. Klíčem je konstanta v T (ne hodnocení), protože
+// jedno hodnocení jich táhne víc. Hráč, který dané hodnocení nemá (brankář nemá `speed`),
+// dostane násobitel 1, tedy holý základ.
+export function stat(p, key){
+  var m = p && p.mul;
+  return T[key] * ((m && m[key] !== undefined) ? m[key] : 1);
+}

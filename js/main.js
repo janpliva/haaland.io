@@ -65,18 +65,18 @@ function step(dt){
   var driven = (ball.owner === S.ctrl) || lungeActive(S.ctrl);
   if(!driven && (mv.sf > 0 || T.accelTime > 0)){
     if(!(T.accelTime > 0)){
-      var sp = T.playerSpeed * mv.sf, x0 = S.ctrl.x, y0 = S.ctrl.y;
+      var sp = speedOf(S.ctrl) * mv.sf, x0 = S.ctrl.x, y0 = S.ctrl.y;
       S.ctrl.fx = mv.x; S.ctrl.fy = mv.y;
       S.ctrl.x += mv.x*sp*dt; S.ctrl.y += mv.y*sp*dt;
       clampField(S.ctrl);
       // sf = podíl ze SKUTEČNĚ ušlé vzdálenosti. U mantinelu clampField krok uřízne, ale zadaná
       // rychlost zůstala — hráč stál a hlásil sf=1, čímž se nafukoval předkop i míření AI.
-      var mvx = S.ctrl.x - x0, mvy = S.ctrl.y - y0, full = T.playerSpeed*dt;
+      var mvx = S.ctrl.x - x0, mvy = S.ctrl.y - y0, full = speedOf(S.ctrl)*dt;
       moveSF = full > 0 ? Math.min(1, Math.sqrt(mvx*mvx + mvy*mvy)/full) : 0;
       S.ctrl.vx = mvx/dt; S.ctrl.vy = mvy/dt;
     } else {
       // výchylka sticku = CÍLOVÁ rychlost, ne zrychlení: půlka výchylky znamená běh na půl
-      driveMove(S.ctrl, mv.x, mv.y, T.playerSpeed*mv.sf, dt);
+      driveMove(S.ctrl, mv.x, mv.y, speedOf(S.ctrl)*mv.sf, dt);
       moveSF = S.ctrl.sf;
     }
   }
@@ -88,9 +88,13 @@ function step(dt){
   // dokud je míč volný a náš — let může trvat déle než passQueueMax. Odpočet začíná až
   // získáním míče (viz převzetí níž), ne puštěním prstu.
   if(touch.fire){
+    // aim:true = směr je zatím ČISTĚ ten zamířený. Nepřesnost podle hodnocení `passing`
+    // se přidá až v doPass, tedy v okamžiku odehrání — plán AI si ji nese už z kickPlan,
+    // ale člověk ji nesmí vidět dopředu, jinak by si ji stickem vykompenzoval.
     if(S.aimFrom)
       ball.pending = { x:touch.fire.x, y:touch.fire.y, speed:passSpeedFor(touch.fire.pw),
-                       until: ball.owner === S.ctrl ? S.time + T.passQueueMax/1000 : 0 };
+                       until: ball.owner === S.ctrl ? S.time + T.passQueueMax/1000 : 0,
+                       aim:true };
     touch.fire = null;
   }
 
@@ -221,7 +225,9 @@ function step(dt){
       if(ball.pending){
         // odehrává se z místa míče a v uloženém směru, ne kam ukazuje prst teď
         var pp = ball.pending; ball.pending = null;
-        doPass(pp.x, pp.y, pp.speed);
+        // nepřesnost se počítá tomu, kdo do míče doopravdy kope, ne tomu, kdo mířil —
+        // jednodotykovou přihrávku může odehrát i jiný spoluhráč, který k míči dorazí dřív
+        doPass(pp.x, pp.y, pp.speed, pp.aim ? o : null);
       } else {
         // Se setrvačností nesmí hráč kopnout tvrději, než jak rychle opravdu běží: bsf je jen
         // ZÁMĚR (výchylka sticku) a při rozjezdu je 1, i když hráč skoro stojí — míč by odletěl

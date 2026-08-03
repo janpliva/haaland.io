@@ -1,18 +1,21 @@
 // Geometrie, „kdo je kdo" a náběh na míč. Vrstva nad state, pod AI.
-import { T, FIELD_W, PH, CONTACT, dirOf } from './config.js';
+import { T, FIELD_W, PH, CONTACT, dirOf, stat } from './config.js';
 import { S, E, ball, dist, clampField, hooks, histAt, locked } from './state.js';
 
 export { dist, clampField };          // ať je zbytek kódu bere z jednoho místa
+export { stat };                      // škálovaná konstanta se čte JEN přes tohle
 
 // ---- kdo je kdo ----
 export function foesOf(p){ return p.team === 'b' ? E.red : E.blue; }
 export function matesOf(p){ return p.team === 'b' ? E.blue : E.red; }
 export function attackY(team){ return team === 'b' ? 0 : S.FIELD_H; }   // branka, na kterou tým útočí
+// Tyhle tři jsou jen tenké obálky nad stat() — žádná vlastní logika, aby existovalo
+// jediné místo, kde se ze základu a hodnocení dělá výsledná hodnota.
 // brankář nemá žádný kouzelný dosah — chytá jen tělem, stejně jako kdokoliv jiný
-export function pickupOf(p){ return p.role === 'gk' ? CONTACT : (p.team === 'b' ? T.pickupMate : T.foePickup); }
+export function pickupOf(p){ return p.role === 'gk' ? CONTACT : stat(p, 'pickupBase'); }
 // na jakou vzdálenost hráč odebere míč soupeři
-export function stealR(p){ return PH + T.tackleR; }
-export function speedOf(p){ return p === S.ctrl ? T.playerSpeed : (p.team === 'b' ? T.mateSpeed : T.foeSpeed); }
+export function stealR(p){ return PH + stat(p, 'tackleR'); }
+export function speedOf(p){ return stat(p, 'speedBase'); }
 // vápno — roste se šířkou branky, takže se ladí jedním posuvníkem
 export function boxW(){ return Math.min(FIELD_W*0.70, T.goalW*2.9); }
 export function boxD(){ return Math.min(S.FIELD_H*0.25, T.goalW*1.7); }
@@ -54,7 +57,7 @@ export function bufferInput(p, nx, ny, sf){
 // konečný. Doběh míří na MÍČ, ne na uložený vektor, takže odraz od mantinelu ani teč
 // držitele od míče neodpojí — to byla přesně chyba pokusů 63c67c1 a 457c95b.
 export function startKick(o, nx, ny, m){
-  var v = speedOf(o)*m, rel = T.touchPush*m;
+  var v = speedOf(o)*m, rel = stat(o, 'touchPush')*m;
   ball.held = false;
   ball.chaseV = v;
   // Výchylka sticku pro TENHLE cyklus. Mezi doteky stick nemění směr ani rychlost — tohle je
@@ -139,7 +142,10 @@ export function driveMove(p, nx, ny, reqSpeed, dt){
   var mx = speedOf(p);
   var vx = p.vx, vy = p.vy, cur = Math.sqrt(vx*vx + vy*vy);
   var dvx = nx*reqSpeed, dvy = ny*reqSpeed;
-  var rate = mx/(((reqSpeed >= cur) ? T.accelTime : T.decelTime)/1000);
+  // Rozjezd je hodnocení `accel`, brzda ne — decelTime zůstává globální. Vypínač setrvačnosti
+  // je pořád ZÁKLAD (T.accelTime > 0), ne hodnota konkrétního hráče: při základu 0 vyjde
+  // násobením nula všem, takže celá hra přepne do bezsetrvačné větve najednou.
+  var rate = mx/(((reqSpeed >= cur) ? stat(p, 'accelTime') : T.decelTime)/1000);
   var ex = dvx - vx, ey = dvy - vy, el = Math.sqrt(ex*ex + ey*ey), lim = rate*dt;
   if(el > lim && el > 1e-9){ vx += ex/el*lim; vy += ey/el*lim; }
   else { vx = dvx; vy = dvy; }
@@ -244,7 +250,7 @@ export function interceptSolve(p, b){
   var v0 = Math.sqrt(b.vx*b.vx + b.vy*b.vy);
   if(v0 < 0.001) return { x:b.x, y:b.y, t: dist(p, b)/Math.max(1, speedOf(p)) };
   var tStop = v0 / T.friction, eff = T.interceptEff/100, sp = speedOf(p);
-  var acc = T.accelTime > 0 ? sp/(T.accelTime/1000) : 0;
+  var acc = T.accelTime > 0 ? sp/(stat(p, 'accelTime')/1000) : 0;
   for(var t=0; t<=tStop+1.5; t+=0.05){
     var q = ballAtT(t, v0, b);
     // hráč se neotočí okamžitě, takže nepočítá s plnou rychlostí
@@ -262,9 +268,12 @@ export function interceptPoint(p, b){ var s = interceptSolve(p, b); return { x:s
 // Jak obránce vidí SOUPEŘE: hráč, jak vypadal před defReact ms, dopočítaný dopředu tehdejší
 // rychlostí. Vlastního spoluhráče vidí živě — vrací se rovnou on sám, takže se u něj nic
 // nealokuje a při defReact 0 jde všude přesně ten samý objekt jako dřív.
-export function perceivedFoe(team, p){
-  if(!(T.defReact > 0) || !p || p.team === team) return p;
-  var h = histAt(p, T.defReact/1000);
+// Zpoždění patří POZOROVATELI, ne pozorovanému: `obs` je obránce, který se dívá, a bere se
+// jeho vlastní defReact z hodnocení `defending`. Dřív to byla vlastnost celého týmu.
+export function perceivedFoe(obs, p){
+  var dr = stat(obs, 'defReact');
+  if(!(dr > 0) || !p || p.team === obs.team) return p;
+  var h = histAt(p, dr/1000);
   if(!h.ok) return p;
   var x = h.x + h.vx*h.age, y = h.y + h.vy*h.age;     // kde by byl, kdyby nic nezměnil
   return (isFinite(x) && isFinite(y)) ? { x:x, y:y, vx:h.vx, vy:h.vy } : p;
@@ -273,12 +282,13 @@ export function perceivedFoe(team, p){
 // zpoždění, obránce si myslí, že mu míč pořád utíká na starou stranu. Odebrání (main.js) i
 // nárok pracují dál se skutečnou polohou — zpoždění je vjem, ne handicap na zákrok.
 // Volný míč se nezpožďuje vůbec: zpožděné je pozorování HRÁČŮ, a volný míč není hráč.
-export function perceivedBall(){
-  if(!(T.defReact > 0) || !ball.owner) return ball;
+export function perceivedBall(obs){
+  var dr = stat(obs, 'defReact');
+  if(!(dr > 0) || !ball.owner) return ball;
   var o = ball.owner;
   // Paměť míče začíná až tím, kdy ho tenhle hráč získal — před tím byl míč někde jinde,
   // takže by se dopočítával obrázek, který nikdy neexistoval.
-  var age = Math.min(T.defReact/1000, Math.max(0, S.time - ball.gained));
+  var age = Math.min(dr/1000, Math.max(0, S.time - ball.gained));
   var h = histAt(o, age), now = histAt(o, 0);
   if(!h.ok || !now.ok) return ball;                   // bez použitelné paměti se nic nepředstírá
   var d = h.age;                                      // skutečné stáří obrázku, ne požadované
@@ -316,7 +326,7 @@ export function lungeActive(p){
   return ball.claim === p && !ball.owner && (ball.lungeNeed || 0) > LUNGE_TAKEOVER*speedOf(p);
 }
 export function lungeSolve(p){
-  var cap = speedOf(p)*T.lungeSpeed/100;
+  var cap = speedOf(p)*stat(p, 'lungeSpeed')/100;
   var v0 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
   if(v0 < 0.001){                       // ležící míč si prostě dojdi normální rychlostí
     var d0 = Math.max(0, dist(p, ball) - CONTACT);
@@ -374,7 +384,7 @@ export function lungeStep(dt){
   var s = lungeSolve(p);
   ball.claimX = s.x; ball.claimY = s.y;
   var dx = s.x - p.x, dy = s.y - p.y, d = Math.sqrt(dx*dx+dy*dy);
-  var cap = speedOf(p)*T.lungeSpeed/100;
+  var cap = speedOf(p)*stat(p, 'lungeSpeed')/100;
   // rychlost, při které dorazí PRÁVĚ s míčem, se stropem — ne rutinně strop
   var sp = Math.min(cap, s.need !== undefined ? s.need : cap);
   if(!(T.accelTime > 0)){
@@ -447,19 +457,32 @@ export function nearestTo(list, tx, ty){
 
 // ---- odehrání ----
 // kickPlan bydlí tady, ne v ai-ball.js: potřebuje ho i keeper.js a jinak by vznikl kruh
-export function kickPlan(dx, dy, speed){
-  var err = T.foeError * Math.PI/180;
-  var a = Math.atan2(dy, dx) + (Math.random()*2-1)*err;   // nepřesnost = chyba AI
+// `p` je ten, kdo kope — nepřesnost i dojezdová rychlost jsou jeho hodnocení `passing`
+export function kickPlan(p, dx, dy, speed){
+  var err = stat(p, 'foeError') * Math.PI/180;
+  var a = Math.atan2(dy, dx) + (Math.random()*2-1)*err;   // nepřesnost = chyba v mušce
   return { kick:true, x:Math.cos(a), y:Math.sin(a), speed:speed };
 }
 // rychlost, aby přihrávka dorazila do cíle ještě s aiArrive, ne aby cíl přestřelila
-export function speedForDistance(d){
-  var v = Math.sqrt(T.aiArrive*T.aiArrive + 2*T.friction*d);
+export function speedForDistance(p, d){
+  var ar = stat(p, 'aiArrive');
+  var v = Math.sqrt(ar*ar + 2*T.friction*d);
   return Math.max(T.passSpeed*(T.passMin/100), Math.min(T.passSpeed, v));
 }
 
-export function doPass(dx, dy, speed){
+// `by` = hráč, jehož nepřesnost se má na směr teprve uplatnit. Plán AI si ji nese už
+// z kickPlan (nabíjí se v okamžiku rozhodnutí), lidská přihrávka ji dostává AŽ TADY, když
+// míč doopravdy odlétá — zelená linka tak dál ukazuje, kam se mířilo, a chybu dopředu
+// nevidíš. Při nulové nepřesnosti se ani nelosuje, aby se nehnul proud náhod.
+export function doPass(dx, dy, speed, by){
   var d = Math.sqrt(dx*dx+dy*dy); if(d < .001) return;
+  if(by){
+    var err = stat(by, 'foeError') * Math.PI/180;
+    if(err > 0){
+      var ang = Math.atan2(dy, dx) + (Math.random()*2-1)*err;
+      dx = Math.cos(ang); dy = Math.sin(ang); d = 1;
+    }
+  }
   var v = speed || T.passSpeed;            // AI zatím kope pořád naplno
   var carrier = ball.owner;
   ball.held = false;                             // přihrávka končí cyklus, rychlost dá kop níž

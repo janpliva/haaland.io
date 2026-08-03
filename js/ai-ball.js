@@ -18,7 +18,7 @@ export function decide(p){
   var dg = Math.sqrt((p.x-gx)*(p.x-gx) + (p.y-gy)*(p.y-gy));
   if(p.role !== 'gk' && dg < T.shootRange){
     var aim = gx + (Math.random()-0.5) * T.goalW * 0.6;
-    if(laneClear(p, aim, gy, 26)) return kickPlan(aim - ball.x, gy - ball.y);
+    if(laneClear(p, aim, gy, 26)) return kickPlan(p, aim - ball.x, gy - ball.y);
   }
 
   var advanced = Math.abs(p.y - gy) < boxD()*1.8;         // jsem v útočné třetině
@@ -41,7 +41,7 @@ export function decide(p){
       var cxa = tgt.x + (gx - tgt.x)*0.35, cya = tgt.y - dir*60;
       var cdx = cxa - ball.x, cdy = cya - ball.y;
       if(laneClear(p, cxa, cya, 18))
-        return kickPlan(cdx, cdy, speedForDistance(Math.sqrt(cdx*cdx + cdy*cdy)));
+        return kickPlan(p, cdx, cdy, speedForDistance(p, Math.sqrt(cdx*cdx + cdy*cdy)));
     }
   }
 
@@ -70,7 +70,7 @@ export function decide(p){
   }
   if(settled && best && (p.role === 'gk' || press < 110 || bestS > 300)){
     var pdx = bestLx - ball.x, pdy = bestLy - ball.y;
-    return kickPlan(pdx, pdy, speedForDistance(Math.sqrt(pdx*pdx + pdy*pdy)));
+    return kickPlan(p, pdx, pdy, speedForDistance(p, Math.sqrt(pdx*pdx + pdy*pdy)));
   }
 
   // brankář bez přihrávky řeší rozehrávku sám (viz keeper.js)
