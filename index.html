@@ -28,11 +28,48 @@
 
 <div id="flash">Ztráta míče</div>
 
-<div id="start">
-  <h1 id="ovT">Prototyp: joystick + přihrávka</h1>
-  <p id="ovA">Palcem drž joystick dole. Čím dál od středu, tím rychleji běžíš — na okraji sprint. <b>Vyjeď prstem za žlutý kruh — přihrávka se nabije a odehraje se, až prst zvedneš, tam, kde ho zvedneš.</b> Vrátíš-li se prstem dovnitř kruhu, nabití se zruší. <b>Čím dál od kruhu prst zvedneš, tím silnější přihrávka</b> — tečkovaná linka ukazuje, kam až míč dojede.</p>
-  <p id="ovB">Útočíš na horní branku — střela je jen přihrávka mezi tyče. Dokud je míč v poli kolem tebe, vedeš ho. Když se míče dotkne červený, ztrácíš ho.</p>
-  <div class="go">Klepni pro start</div>
+<!-- Domovská obrazovka. Rozvržená jako hřiště: soupeř nahoře, ty dole, zápas mezi tím.
+     Soupisky, list hráče i hromadná úprava se generují v js/menu.js. -->
+<div id="menu" class="screen">
+  <div class="home">
+    <div id="lastResult" class="result" hidden></div>
+
+    <button class="teamCard foe" id="cardR">
+      <span class="tcTop"><span class="tcName">Protější tým</span><span class="tcDot"></span></span>
+      <span class="tcSub" id="subR"></span>
+      <span class="tcRoster" id="rosR"></span>
+    </button>
+
+    <button class="play" id="playBtn">Hrát zápas</button>
+
+    <button class="teamCard own" id="cardB">
+      <span class="tcTop"><span class="tcName">Můj tým</span><span class="tcDot"></span></span>
+      <span class="tcSub" id="subB"></span>
+      <span class="tcRoster" id="rosB"></span>
+    </button>
+  </div>
+</div>
+
+<!-- Soupiska jednoho týmu -->
+<div id="squad" class="screen" hidden>
+  <header class="bar">
+    <button class="back" id="squadBack">Zpět</button>
+    <h2 id="squadTitle"></h2>
+  </header>
+  <div class="scroll" id="squadBody"></div>
+  <div class="barBottom">
+    <button class="ghost" id="randBtn">Náhodně</button>
+    <button class="ghost" id="fiftyBtn">Výchozí</button>
+  </div>
+</div>
+
+<!-- List jednoho hráče -->
+<div id="sheet" class="screen" hidden>
+  <header class="bar">
+    <button class="back" id="sheetBack">Zpět</button>
+    <h2 id="sheetTitle"></h2>
+  </header>
+  <div class="scroll" id="sheetBody"></div>
 </div>
 
 <script type="module" src="js/main.js"></script>

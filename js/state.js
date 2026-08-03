@@ -11,6 +11,8 @@ export const S = {
   // lockedPlayer/lockOut, aby se ty dva zámky nepřepisovaly (poražený útočník i brankář
   // musí být zamčení naráz)
   gkCleared:null, gkClearOut:0,
+  // 'menu' = domovská obrazovka / soupisky, 'game' = běží zápas. Nic se nerozehrává samo.
+  screen:'menu',
   kickNext:'b', scoreB:0, scoreR:0, matchOver:false, running:false,
   deadTime:0, roleTimer:0, lastCarrier:null, drawAim:null,
   // odkud se míří a kdo míč podle nároku zpracuje jako první (jednodotyková přihrávka)
@@ -37,8 +39,10 @@ export const touch = { active:false, id:null, x:0, y:0, fire:null };
 export const E = { blue: [], red: [], all: [], gkB: null, gkR: null };
 
 // reset() potřebuje pickChasers z util.js, ale util.js závisí na state.js. Aby zůstal
-// import jednosměrný, util si sem funkci zapíše při svém načtení.
-export const hooks = { pickChasers: function(){} };
+// import jednosměrný, util si sem funkci zapíše při svém načtení. Stejně tak store.js
+// zapisuje applyRatings — buildTeams ji volá na konci, takže uložená hodnocení naskočí
+// i po přestavení týmů z panelu a nesedící tvar se zahodí právě tam.
+export const hooks = { pickChasers: function(){}, applyRatings: function(){} };
 
 // ---- krátká paměť: jak kdo běžel ----
 // Obránce vidí SOUPEŘE se zpožděním defReact — každého, ne jen držitele míče. Vlastní tým,
@@ -178,6 +182,7 @@ export function buildTeams(){
   E.gkB = mk('b', 'gk'); E.blue.push(E.gkB);
   E.gkR = mk('r', 'gk'); E.red.push(E.gkR);
   E.all = E.blue.concat(E.red);
+  hooks.applyRatings();      // uložená hodnocení, nebo samé padesátky když tvar nesedí
 }
 
 export function reset(kickTeam){

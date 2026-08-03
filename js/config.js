@@ -129,26 +129,48 @@ export const KEEPER_STATS   = ['reflexes','accuracy','rushing','passing'];
 // Klíčem je konstanta, ne hodnocení: jedno hodnocení může táhnout víc konstant a každá
 // z nich má svůj vlastní směr (viz defending — reakce dolů, dosah odebrání nahoru).
 // Celá tabulka je na jednom místě, takže se rozpětí přeladí jedním editem.
+// `unit` je jen popisek pro menu — hra ho nečte.
 export const STAT_SCALE = {
   //                stat          lo(0)   hi(99)   dir
-  speedBase:   { stat:'speed',     lo:0.88, hi:1.12, dir:'higher' },
+  speedBase:   { stat:'speed',     lo:0.88, hi:1.12, dir:'higher', unit:'j/s' },
   // Rychlost je úzká schválně: ±12 % už je vidět, že rychlejší hráč odjíždí, a širší
   // rozpětí dělá z nízko hodnoceného hráče nehratelnou překážku.
-  accelTime:   { stat:'accel',     lo:1.50, hi:0.60, dir:'lower'  },
-  touchPush:   { stat:'dribble',   lo:1.35, hi:0.70, dir:'lower'  },
+  accelTime:   { stat:'accel',     lo:1.50, hi:0.60, dir:'lower',  unit:'ms' },
+  touchPush:   { stat:'dribble',   lo:1.35, hi:0.70, dir:'lower',  unit:'j/s' },
   // Při základu 3° vyjde hodnocení 0 na 8°, 50 na 3° a 99 na 0° — přesně proto se základ
   // zvedl z nuly, jinak by nad padesátkou nebylo co zlepšovat.
-  foeError:    { stat:'passing',   lo:8/3,  hi:0,    dir:'lower'  },
-  aiArrive:    { stat:'passing',   lo:0.85, hi:1.15, dir:'higher' },
-  pickupBase:  { stat:'control',   lo:0.80, hi:1.25, dir:'higher' },
-  lungeSpeed:  { stat:'control',   lo:0.80, hi:1.25, dir:'higher' },
-  defReact:    { stat:'defending', lo:1.60, hi:0.50, dir:'lower'  },
-  tackleR:     { stat:'defending', lo:0.50, hi:1.60, dir:'higher' },
-  gkReaction:  { stat:'reflexes',  lo:1.60, hi:0.50, dir:'lower'  },
-  gkError:     { stat:'accuracy',  lo:1.70, hi:0.40, dir:'lower'  },
-  gkDiveSpeed: { stat:'rushing',   lo:0.85, hi:1.15, dir:'higher' },
-  gkRushSpeed: { stat:'rushing',   lo:0.85, hi:1.15, dir:'higher' }
+  foeError:    { stat:'passing',   lo:8/3,  hi:0,    dir:'lower',  unit:'°' },
+  aiArrive:    { stat:'passing',   lo:0.85, hi:1.15, dir:'higher', unit:'j/s' },
+  pickupBase:  { stat:'control',   lo:0.80, hi:1.25, dir:'higher', unit:'j' },
+  lungeSpeed:  { stat:'control',   lo:0.80, hi:1.25, dir:'higher', unit:'%' },
+  // Obrana je ŠIROKÁ, na rozdíl od rychlosti: při základu 80 ms dává 200 / 80 / 32 ms.
+  // Užší rozpětí (1.60 → 0.50) bylo měřitelně k nerozeznání — mužstvo samých dvacítek
+  // drželo blok stejně jako mužstvo padesátek. Základ 80 zůstává, hýbe se jen rozptyl.
+  defReact:    { stat:'defending', lo:2.50, hi:0.40, dir:'lower',  unit:'ms' },
+  tackleR:     { stat:'defending', lo:0.50, hi:1.60, dir:'higher', unit:'j' },
+  gkReaction:  { stat:'reflexes',  lo:1.60, hi:0.50, dir:'lower',  unit:'ms' },
+  gkError:     { stat:'accuracy',  lo:1.70, hi:0.40, dir:'lower',  unit:'j' },
+  gkDiveSpeed: { stat:'rushing',   lo:0.85, hi:1.15, dir:'higher', unit:'%' },
+  gkRushSpeed: { stat:'rushing',   lo:0.85, hi:1.15, dir:'higher', unit:'%' }
 };
+// Popisky hodnocení pro menu. Zkratka se vejde do řádku soupisky, celý název do listu hráče.
+export const STAT_LABEL = {
+  speed:     { cs:'Rychlost',   abbr:'RYC' },
+  accel:     { cs:'Zrychlení',  abbr:'ZRY' },
+  dribble:   { cs:'Driblink',   abbr:'DRI' },
+  passing:   { cs:'Přihrávka',  abbr:'PŘI' },
+  control:   { cs:'Zpracování', abbr:'ZPR' },
+  defending: { cs:'Obrana',     abbr:'OBR' },
+  reflexes:  { cs:'Reflexy',    abbr:'REF' },
+  accuracy:  { cs:'Přesnost',   abbr:'PŘE' },
+  rushing:   { cs:'Výběh',      abbr:'VÝB' }
+};
+// které konstanty dané hodnocení táhne — menu podle toho ukazuje, co z čísla vyleze
+export function keysOfStat(name){
+  var out = [];
+  for(var k in STAT_SCALE) if(STAT_SCALE[k].stat === name) out.push(k);
+  return out;
+}
 // `dir` není dekorace: musí sedět s tím, co dělají lo/hi. Kdyby se rozpětí přeladilo a směr
 // se zapomněl otočit, chytí se to při načtení, ne až v zápase.
 for(const k in STAT_SCALE){

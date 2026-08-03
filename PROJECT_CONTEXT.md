@@ -25,6 +25,11 @@ There are goals at both ends, a keeper each, and a scoreline; first to `targetGo
 A shot is just a pass — there is no separate shooting gesture, deliberately. Both teams play
 football: whoever touches the ball gets it, and then attacks the other end.
 
+The app opens on a **menu**, not on the pitch. Nothing auto-starts and nothing auto-restarts:
+you press "Hrát zápas" to play, and full time drops you back to the menu with the score. Each
+player carries **ratings 0–99** that scale the tunables; the menu is where they are edited.
+Ratings persist across sessions, tunables never do — see §5 and §6.
+
 ## 2. Long-term concept — NOT BUILT, DO NOT BUILD
 
 A 1v1 mobile football game where each player controls a whole team; attacking is a
@@ -241,8 +246,9 @@ defender is 60 units clear on the other side); without that it swung 360 units w
 defender crossed, which whipped the carrier's facing and threw the ball off its foot.
 
 Both teams run the same touch cycle and the same claim, so an apparent AI-only quirk is
-almost always a tuning difference (`pickupMate` vs `foePickup`) or an exposure difference —
-the AI receives far more often than you do, so you see its receptions more.
+almost always a **ratings** difference (the two teams no longer have separate constants at
+all) or an exposure difference — the AI receives far more often than you do, so you see its
+receptions more.
 
 ### Finishing: box runs, crosses, solo runs
 The AI used to run to the byline and stall. Rather than a scripted-play engine (a
@@ -330,8 +336,9 @@ A goal pauses play for 1.4 s, flashes, and calls `reset(kickNext)` — the conce
 kicks off. Own goals count for the other side; passing backwards into your own net is a real
 hazard.
 
-Reaching `targetGoals` sets `matchOver`, which stops the auto-restart in `frame()` and shows
-the overlay; the intro text is stashed in `INTRO` at load and restored by `newMatch()`.
+Reaching `targetGoals` sets `matchOver` and stops the clock. `frame()` in `main.js` then
+returns to the menu with the score; `newMatch()` clears the score at the next kickoff, so the
+result stays readable on the home screen until you start again.
 
 ### The dribble is a physical touch cycle with an automatic chase
 The ball is never attached to anyone and is never driven by a formula. It always carries
@@ -475,6 +482,118 @@ contact, a median 250 ms into a 500 ms cycle, so at `gkRushCommit` 380 a cut lan
 130 ms of commitment left — worth roughly 26 units of separation against a 25-unit contact
 radius. Measured, rounding him works 2 % of the time at 380, 53 % at 600 and 87 % at 800.
 
+### Momentum: speed is a vector that changes at a finite rate
+Players no longer teleport between speeds. `driveMove(p, nx, ny, reqSpeed, dt)` in `util.js`
+owns `p.vx,p.vy` and moves it toward the requested velocity at `speedOf(p)/accelTime` when
+speeding up and `speedOf(p)/decelTime` when slowing, then clamps the magnitude to `speedOf(p)`.
+Facing follows the velocity, so nobody slides sideways, and `sf` is real speed over maximum.
+
+Consequences that had to be handled explicitly, each of which was a measured bug first:
+
+- **`accelTime` 0 is a separate branch everywhere.** Every movement block keeps its original
+  pre-momentum expression under `if(!(T.accelTime > 0))`. An integrator with an enormous rate
+  would round differently and bit-identity with the old game would fail.
+- **Arrival brakes.** `moveTo` caps the requested speed at `sqrt(2·dec·d)` so a player settles
+  on a target instead of overshooting it (measured 16.7 units of overshoot and three passes
+  back and forth). A `through` flag skips this for *moving* targets — an interception point is
+  run through, not arrived at.
+- **The carrier keeps running while the ball is at his feet.** `carryChase` calls `driveMove`
+  even when `ball.held`, or he could never build up the speed that sets `touchPush` (measured:
+  zero touches in 300 frames).
+- **The kick is capped by real speed.** At contact `m` is `min(bsf, |v|/speedOf)`, because
+  `bsf` is only *intent* and reads 1 while a standing player is still accelerating — the ball
+  would leave at 300 from a player doing 0.
+- **The cycle speed is the intent sampled at contact** (`ball.chaseM`), not the live stick.
+  Using the live stick meant lifting the thumb to pass stopped the carrier mid-cycle, so the
+  contact never arrived and the queued pass never fired.
+- **`peakGap` is recomputed** (`refreshPeakGap`) from the *current* relative speed, because a
+  carrier who brakes mid-cycle separates from the ball in a way the closed form never modelled
+  and the guard cried wolf (78.9 against a threshold of 51.6, 17 times in one run).
+- **`interceptSolve` models the ramp.** `reachIn` integrates the acceleration phase instead of
+  assuming `sp*t`; the old model was wrong by +78 units from a standstill and +316 running away
+  from the target.
+- **The reception lunge may only add speed.** `lungeSolve` minimises the *required* speed, so
+  the cheapest answer is often to slow down and wait — which with momentum is an active brake
+  costing a full `accelTime` to undo (69 % of lunges commanded a speed below the player's
+  actual, median 0.43×). `lungeStep` therefore commands `max(required, current)`.
+- **History uses the real velocity.** With momentum on, `histPush` stores `p.vx,p.vy` directly
+  rather than reconstructing it over a 150 ms window.
+
+### Player ratings scale the tunables, they never replace them
+Every outfield player has six ratings 0–99 (`speed`, `accel`, `dribble`, `passing`, `control`,
+`defending`), every keeper four (`reflexes`, `accuracy`, `rushing`, `passing`). **Rating 50 is
+exactly 1.000× the value in `TUNABLES`**, so an all-50 squad is bit-identical to the game
+without ratings — verified over six seeded matches against the `pre-stats` tag.
+
+`STAT_SCALE` in `config.js` is the whole spread in one table. It is keyed by **constant**, not
+by stat, because one stat drives several constants and each has its own direction — `defending`
+lowers `defReact` *and* raises `tackleR`. `dir` is stored explicitly and checked against
+`lo`/`hi` at load, so a retune that forgets to flip the direction is caught at boot.
+
+| stat | constants | rating 0 → 99 |
+|---|---|---|
+| `speed` | `speedBase` | 0.88× → 1.12× |
+| `accel` | `accelTime` | 1.50× → 0.60× (lower is better) |
+| `dribble` | `touchPush` | 1.35× → 0.70× (lower is better) |
+| `passing` | `foeError`, `aiArrive` | 8/3× → 0×; 0.85× → 1.15× |
+| `control` | `pickupBase`, `lungeSpeed` | 0.80× → 1.25× |
+| `defending` | `defReact`, `tackleR` | 2.50× → 0.40× (lower better); 0.50× → 1.60× |
+| `reflexes` | `gkReaction` | 1.60× → 0.50× (lower is better) |
+| `accuracy` | `gkError` | 1.70× → 0.40× (lower is better) |
+| `rushing` | `gkDiveSpeed`, `gkRushSpeed` | 0.85× → 1.15× |
+
+The spreads are deliberately narrow and deliberately *not* the slider's min/max — the sliders
+are exploratory and far too wide to use as player variation. `speed` is the narrowest: ±12 % is
+already enough to see a player pull away (44.6 units, ~14 css px, after a 2 s straight run at
+99 against 50), and wider makes low-rated players unplayable. `defending` is the widest, at
+2.50×→0.40× giving 200/80/32 ms: the original 1.60×→0.50× produced squads at rating 20 and 50
+that were statistically indistinguishable on block spread, marker wander, line breaches and box
+entries over 24 seeds.
+
+**Everything reads a scaled constant through `stat(p, key)`.** `speedOf`, `pickupOf` and
+`stealR` are thin wrappers over it. Two deliberate exceptions, both commented at the call site:
+the `T.accelTime > 0` gates (a global momentum on/off switch, not a per-player value — base 0
+zeroes everyone's), and the ring drawn around the *ball* at `T.tackleR` in `render.js`, which
+has no single player to attribute it to.
+
+Performance: `resolveRatings(p)` precomputes the **multipliers** onto `p.mul`, not the resolved
+values. Multipliers depend only on ratings; the base is read live from `T` at use. That keeps
+the interpolation out of the inner loop while leaving the gear-panel sliders working live — had
+the resolved value been cached, moving a slider would have done nothing until the teams were
+rebuilt.
+
+`defReact` is the observer's own reaction time, not a team constant: `perceivedFoe(obs, p)` and
+`perceivedBall(obs)` both take the observing defender, and each defender builds his own delayed
+picture for everything he acts on — his marking target, his press run, his own press trigger,
+his own `lineY`. The single genuinely shared decision (who chases when the press is off) uses
+the committed chaser's picture, falling back to the team's first outfielder. Measured over 24
+seeds, a squad with `defending` spread 20–80 is indistinguishable from a uniform one on block
+spread, marker wander, line breaches and box entries — mixed pictures weaken the block, they do
+not shred it.
+
+### The menu is the home screen
+`js/menu.js` owns three screens over the canvas, and `S.screen` (`'menu'` / `'game'`) says
+which world input belongs to. The home screen is laid out like the pitch — opponent card at the
+top (the goal you attack), "Hrát zápas" in the middle, your team at the bottom — with each card
+showing its squad as shirt-number chips and their overall ratings.
+
+- **Nothing auto-starts.** Boot calls `reset()` so the pitch is dressed behind the menu, but
+  `S.running` stays false until the button is pressed.
+- **Full time returns to the menu** with the score, which stays visible until the next kickoff
+  clears it. There is no tap-to-replay: `goal()` only records `matchOver`, and `frame()` in
+  `main.js` opens the menu. The post-goal pause *is* still skippable by tapping — that is a
+  different thing and lives in `skipPause()`.
+- A team page lists every player with all his ratings as numbers and colour-graded bars, so a
+  squad reads without opening anyone. Tapping a player opens sliders showing the rating *and*
+  the resolved constant (`speedBase 200 → 210 j/s`), which is the bridge between a rating and
+  the thing the gear panel tunes.
+- **Bulk shift** moves one stat by ±5 across every player in the team who has it, clamped per
+  player to 0–99. That is how a per-team experiment is set up — one team on `control` 30, the
+  other on 70 — without opening six sheets.
+- "Náhodně" is a plain uniform 0–99 draw; "Výchozí" sets the whole team to 50.
+- The gear panel is untouched and separate: **the menu tunes players, the panel tunes the
+  game.** They are deliberately not merged.
+
 ### Lane-based teammate runs
 `assignRoles()` sorts non-carrier teammates by current x and gives each
 one a lane `(k + 0.5) / n` across the field width, alternating `band`: even index = forward
@@ -489,27 +608,36 @@ one safe one. (This rationale is inferred from the code — the lane penalty
 
 ## 4. Architecture
 
-`index.html` (40) is a DOM shell, `styles.css` (67) the CSS, and the JS lives in `js/`:
-`config` (89), `state` (100), `util` (311), `ai-off` (121), `ai-def` (105), `ai-ball` (116),
-`keeper` (75), `match` (46), `input` (62), `render` (157), `ui` (63), `main` (223).
+`index.html` (77) is a DOM shell, `styles.css` (242) the CSS, and the JS lives in `js/`:
+`config` (210), `state` (223), `store` (79), `util` (496), `ai-off` (121), `ai-def` (134),
+`ai-ball` (116), `keeper` (174), `match` (38), `input` (63), `render` (190), `ui` (63),
+`menu` (264), `main` (299).
 
-Imports run one way only: config → state → util → ai/keeper → match → input → render/ui →
-main. Because module bindings are read-only, every value that is reassigned from more than
-one place lives as a property of a shared object: `S` (game state), `E` (entity arrays),
-`ball`, `touch`, `joyBase`, `T`. Those objects are never reassigned, only mutated.
+Imports run one way only: config → state → store → util → ai/keeper → match → input →
+render/ui → menu → main. Because module bindings are read-only, every value that is
+reassigned from more than one place lives as a property of a shared object: `S` (game state),
+`E` (entity arrays), `ball`, `touch`, `joyBase`, `T`. Those objects are never reassigned, only
+mutated.
 
-Two places bend the file layout to keep imports acyclic. `dist`/`clampField` sit in
-`state.js` rather than `util.js` because `reset()` needs them; and `state.js` exposes a
-`hooks` object that `util.js` fills with `pickChasers`, because `reset()` has to call it
-while `util` is the layer above. `kickPlan` moved to `util.js` so `keeper.js` and
-`ai-ball.js` can both use it without importing each other.
+Three places bend the file layout to keep imports acyclic. `dist`/`clampField` sit in
+`state.js` rather than `util.js` because `reset()` needs them; `state.js` exposes a `hooks`
+object that `util.js` fills with `pickChasers` and `store.js` with `applyRatings`, because
+`reset()` and `buildTeams()` have to call them from the layer below; and `kickPlan` moved to
+`util.js` so `keeper.js` and `ai-ball.js` can both use it without importing each other.
+
+`menu.js` imports `match.js` (for `newMatch`), so `match.js` must not import `menu.js`. Full
+time therefore only *records* `matchOver`; the return to the menu is triggered from `frame()`
+in `main.js`, which sees `S.matchOver && S.screen === 'game'` and calls `openMenu(true)`.
 
 ```
 resize()                       canvas sizing + field scale      state.js
 mk / buildTeams / reset()      entities, kickoff positions      state.js
+STAT_SCALE / ratingMul / stat  ratings → scaled constants       config.js
+applyStoredRatings/saveRatings ratings persistence              store.js
 input handlers                 touch + mouse → touch{}          input.js
 bufferInput                    stores intent, never moves       util.js
 startKick / holdBall           the touch cycle                  util.js
+driveMove                      velocity ramp (momentum)         util.js
 carryChase                     carrier runs at the ball         util.js
 updateClaim / lungeSolve /
   lungeActive / lungeStep      reception claim and lunge        util.js
@@ -520,6 +648,8 @@ perceivedFoe / perceivedBall   what a defender sees of them     util.js
 doPass                         releases the ball                util.js
 assignRoles / mateTarget       teammate lanes and spots         ai-off.js
 decide / driveCarrier          AI carrier plans and kicks       ai-ball.js
+openMenu / openSquad /
+  openSheet / shift / setAll   menu screens and bulk edits      menu.js
 frame()                        rAF loop                         main.js
 step(dt)                       all simulation                   main.js
 draw()                         all rendering                    render.js
@@ -534,26 +664,34 @@ overwritten by the first `resize()`. On a 375×812 phone `scale` is 0.3125 and t
 is drawn in css px directly. Device pixel ratio is capped at 2.5.
 
 ### Entities
-`mk(team)` → `{ x, y, fx, fy, team, tx, ty, think, seed, sf, role, plan, side, bx, by, bsf,
-shotOn, shotId, shotDeadline, shotX, shotY }`. `fx,fy` is facing (init `0,-1`), `tx,ty` the
-AI target, `think` a plan countdown, `seed` a per-player random for noise, `sf` the fraction
-of top speed actually travelled last frame (measured after `clampField`, so a player pinned
-on a touchline reports the speed he has, not the one he asked for). **`bx,by,bsf` is the
-buffered input** — direction and magnitude the player *wants*, written every frame by
-`bufferInput` and only read at contact. `assignRoles` adds `lane`, `laneN`, `band`, `prefD`
-to teammates at runtime.
+`mk(team, role, num)` → `{ x, y, fx, fy, team, tx, ty, think, seed, sf, role, num, plan, side,
+bx, by, bsf, vx, vy, h, rush, rushT, rushX, rushY, shotOn, shotId, shotDeadline, shotX, shotY,
+ratings, mul }`.
+
+`fx,fy` is facing (init `0,-1`), `tx,ty` the AI target, `think` a plan countdown, `seed` a
+per-player random for noise, `sf` the fraction of top speed actually travelled last frame
+(measured after `clampField`, so a player pinned on a touchline reports the speed he has, not
+the one he asked for). **`bx,by,bsf` is the buffered input** — direction and magnitude the
+player *wants*, written every frame by `bufferInput` and only read at contact. **`vx,vy` is
+the real velocity vector**, owned by `driveMove` (momentum). `h` is his 256-sample position/
+velocity ring (`mkHist`). `rush*` is the keeper's charge. `num` is the shirt number — drawn
+only, never read by the simulation. `ratings` is his 0–99 map and `mul` the multipliers
+derived from it. `assignRoles` adds `lane`, `laneN`, `band`, `prefD` to teammates at runtime.
 
 Players are 30×30 squares (`PH = 15` half-side), `BALL_R = 10`, so `CONTACT = 25`.
-Arrays: `E.blue`, `E.red`, `E.all`, plus `E.gkB` / `E.gkR`.
+Arrays: `E.blue`, `E.red`, `E.all`, plus `E.gkB` / `E.gkR`. Outfielders are numbered 1..n per
+team in `buildTeams`; the keeper is last in each list and carries `num` 0.
 
 `ball` carries the cycle and reception state alongside the physics: `held` (carrier stopped,
-ball at his feet), `chaseV` (his speed for this cycle), `peakGap` (derived, for the guard),
-`claim` / `claimX` / `claimY` / `lungeNeed` (reception), `pending` (queued pass), `chaser` /
-`chaseDir` (who is committed to a loose ball).
+ball at his feet), `chaseV` (his speed for this cycle), `chaseM` (the stick deflection sampled
+at contact and held for the whole cycle), `peakGap` (derived, for the guard), `gained` (when
+possession started), `claim` / `claimX` / `claimY` / `lungeNeed` (reception), `pending`
+(queued pass), `chaser` / `chaseDir` (who is committed to a loose ball).
 
-`S` holds `ctrl`, `time`, `lockOut`, `lockedPlayer`, `lastTeam`, `kickNext`, `scoreB`,
-`scoreR`, `matchOver`, `running`, `deadTime`, `roleTimer`, `lastCarrier`, `drawAim`, the
-viewport values `cssW`/`cssH`/`scale`/`FIELD_H`, and the guard counters `gapWarn` /
+`S` holds `screen` (`'menu'` or `'game'`), `ctrl`, `time`, `lockOut`, `lockedPlayer`,
+`gkCleared` / `gkClearOut`, `lastTeam`, `kickNext`, `scoreB`, `scoreR`, `matchOver`,
+`running`, `deadTime`, `roleTimer`, `lastCarrier`, `drawAim`, `aimFrom` / `recv` (one-tap),
+the viewport values `cssW`/`cssH`/`scale`/`FIELD_H`, and the guard counters `gapWarn` /
 `gapWarnLog`.
 
 ### Loop
@@ -574,10 +712,11 @@ the pass direction is decided there. It takes a `cancel` flag: `touchcancel` rou
 the same function but never fires a pass, since a system interruption is not a deliberate
 release.
 
-The first tap does not steer: while `!running`, `onDown` hides the start overlay, sets
-`running = true`, calls `reset()` and returns without taking the stick.
-The same path means a tap during the post-goal pause skips the rest of it. That
-tap's `touchend` is ignored because `touch.id` is still null, so it cannot fire a pass.
+`onDown` ignores the canvas entirely while `S.screen !== 'game'`, so the menu is not a
+steering surface. During the post-goal pause (`!running`, but not `matchOver`) a tap calls
+`skipPause()` and returns without taking the stick; that tap's `touchend` is ignored because
+`touch.id` is still null, so it cannot fire a pass. At full time a tap does nothing — the
+match is restarted from the menu, never by tapping the pitch.
 
 ### Simulation order inside `step(dt)`
 1. `updateClaim()` **first**, because the movement blocks below ask `lungeActive()` whether
@@ -599,8 +738,10 @@ tap's `touchend` is ignored because `touch.id` is still null, so it cannot fire 
 ### Rendering
 Immediate mode, redrawn every frame, painter's order: pitch fill → stripes → boundary /
 halfway / centre circle → goals and boxes → for each player (pickup-radius ring, body square,
-white outline if he owns the ball, white ring at `PH*1.2` if he is the controlled player,
-facing tick) → anticipated-receiver ring (dashed, yellow while charging, green once armed) →
+white outline if he owns the ball, **shirt number** — dark-stroked white digit filling the
+square, or a dark dot for a keeper — white ring at `PH*1.2` if he is the controlled player,
+facing tick, which starts at the body edge rather than the centre so it does not strike
+through the number) → anticipated-receiver ring (dashed, yellow while charging, green once armed) →
 armed-pass line (green, dotted, from `S.aimFrom`) → charge aim line (yellow, dashed, from
 `S.aimFrom`) → ball and its `tackleR` ring → joystick (inner ring, dashed threshold ring, knob
 clamped to the threshold radius).
@@ -610,15 +751,36 @@ filled disc of radius `PH*1.9` = 28.5, which was wider than the ball's resting o
 player and ball read as a single blob and made the human's carry look glued while an AI's
 identical geometry did not.
 
-### Settings are not persisted
-There is no storage layer. `T` is initialised from `TUNABLES` at every boot, so the game
-always runs on what the source says. Sliders mutate `T` live for the session and nothing is
-written; `clearStore()` deletes any payload left by the old `fbproto_tuning_v1` key at boot.
-"Vrátit výchozí hodnoty" copies `DEFAULTS` back into `T`.
+### Tunables are not persisted; ratings are
+**`T` is never stored.** It is initialised from `TUNABLES` at every boot, so the game always
+runs on what the source says. Sliders mutate `T` live for the session and nothing is written;
+`clearStore()` deletes any payload left by the old `fbproto_tuning_v1` key at boot. "Vrátit
+výchozí hodnoty" copies `DEFAULTS` back into `T`. Exactly three places in the whole codebase
+assign to `T`: the init loop in `config.js` and the two handlers in `ui.js`.
 
 This replaced a `window.storage` / `localStorage` layer that silently overrode new defaults
 on any device that had ever saved — changing a default in code had no effect there, and the
 symptom was indistinguishable from the code not working.
+
+**Player ratings are stored**, and `js/store.js` is the only file that touches storage. It does
+not import `T`, so there is no code path from storage to a tunable. The design, which exists
+specifically so the old failure cannot return through this door:
+
+- One key, `fbproto_ratings_v1`, holding `{ v:1, b:[…], r:[…] }` — per team, per player, in
+  `E.blue`/`E.red` order (outfield 1..n, keeper last). Ratings and nothing else; ~900 bytes.
+- **Validated whole, discarded whole.** The payload must parse, carry the right version, have
+  arrays exactly as long as the current squads, and every entry's key set must match that
+  player's stat list exactly, with every value a finite number in 0–99. Any failure drops the
+  entire payload (and deletes it) and every rating falls back to 50. Partial merging is
+  forbidden on purpose: a half-restored squad is the same silent lie the tuning store was.
+- `buildTeams()` calls `hooks.applyRatings()` at its end, so this runs at boot *and* on every
+  panel-driven rebuild. **Changing `teamSize` or `foeSize` therefore discards the stored
+  ratings for both teams** — the array lengths no longer match — and the squad comes back at
+  all 50. That is deliberate and is the explicit answer to "what happens when the squad
+  changes", not an accident of the validation.
+- Saving happens on every rating mutation: on `change` (thumb lifted) for a slider, immediately
+  for bulk shift, "Náhodně" and "Výchozí". Pressing "Výchozí" on both teams leaves a valid
+  all-50 payload, which is the supported way to wipe it.
 
 ## 5. Tunables
 
@@ -629,13 +791,10 @@ these values. They are hand-tuned by playing — do not change one without being
 
 | Key | Default | Range (step) | Unit | Effect |
 |---|---|---|---|---|
-| `teamSize` | 5 | 1–6 (1) | count | Blue outfielders. Rebuilds teams and starts a new match. |
+| `teamSize` | 5 | 1–6 (1) | count | Blue outfielders. Rebuilds teams and starts a new match. **Rebuilding discards stored ratings** if the shape changes — see §6. |
 | `foeSize` | 5 | 1–6 (1) | count | Red outfielders. Same. |
-| `playerSpeed` | 200 | 120–320 (5) | units/s | Top speed of the controlled player, reached at the inner ring. |
-| `mateSpeed` | 200 | 100–320 (5) | units/s | Blue AI speed. |
-| `foeSpeed` | 200 | 100–320 (5) | units/s | Red chaser speed. Markers use 0.84×, surplus reds 0.85×. |
-| `pickupMate` | 40 | 16–90 (1) | units | Blue **claim** radius. A loose ball whose path crosses it makes that player the receiver; it does not stop or slow the ball. |
-| `foePickup` | 40 | 16–90 (1) | units | Red claim radius. Same rule, same code. |
+| `speedBase` | 200 | 120–320 (5) | units/s | Top speed, **every player, both teams**. Per-player and per-team differences come from the `speed` rating, not from a second constant. Replaced `playerSpeed`/`mateSpeed`/`foeSpeed`. Markers still use 0.84×, surplus defenders 0.85×. |
+| `pickupBase` | 40 | 16–90 (1) | units | **Claim** radius, both teams. A loose ball whose path crosses it makes that player the receiver; it does not stop or slow the ball. Replaced `pickupMate`/`foePickup`. |
 | `tackleR` | 3 | 0–60 (1) | units | Extra steal reach beyond the body. An opponent within `PH + tackleR` of the **ball** takes it. Not the ball's physical radius — that is `BALL_R`. |
 | `touchPush` | 100 | 0–600 (10) | units/s | Extra speed given to the ball at contact, scaled by stick magnitude. Sets the whole dribble rhythm: peak gap `(touchPush*m)²/(2*friction)`, cycle `2*touchPush*m/friction`. The formula holds while `touchPush <= speedOf`. |
 | `chaseSteer` | 0 | 0–100 (5) | % | How much stick is blended into the carrier's automatic run at the ball. 0 = pure chase and full commitment between contacts, 100 = continuous steering. |
@@ -646,15 +805,15 @@ these values. They are hand-tuned by playing — do not change one without being
 | `passMin` | 40 | 10–90 (5) | % of `passSpeed` | Weakest pass, played when the thumb is released right on the ring. |
 | `aimLen` | 33 | 5–100 (1) | % of roll distance | Length of the aiming line as a fraction of how far the ball would really go. |
 | `aiArrive` | 220 | 50–500 (10) | units/s | Speed an AI pass should still have on arrival. Drives distance-scaled pass power. |
-| `passQueueMax` | 700 | 200–2000 (50) | ms | How long an armed pass waits for a contact before being dropped, counted **from possession**, not from release. With the automatic chase a contact always arrives well inside this, so it effectively never expires. |
-| `passLead` | 90 | 0–300 (5) | units | How far ahead of a moving teammate an AI pass is aimed, scaled by his `sf`. |
+| `passQueueMax` | 1700 | 200–2000 (50) | ms | How long an armed pass waits for a contact before being dropped, counted **from possession**, not from release. With the automatic chase a contact always arrives well inside this, so it effectively never expires. |
+| `passLead` | 150 | 0–300 (5) | units | How far ahead of a moving teammate an AI pass is aimed, scaled by his `sf`. |
 | `joyR` | 70 | 40–100 (2) | css px | Inner ring radius. Also the distance at which you hit full speed. |
 | `passThresh` | 122 | 100–180 (2) | % of `joyR` | Outer ring radius — the charge boundary. ~85.4 css px at the default. |
 | `goalW` | 240 | 100–500 (10) | units | Goal mouth width, centred on `FIELD_W/2` at both ends. Also scales the boxes. |
 | `targetGoals` | 5 | 1–15 (1) | count | First to this many goals wins. |
-| `shootRange` | 700 | 200–1600 (20) | units | How close to goal an AI carrier must be before it will shoot. |
+| `shootRange` | 400 | 200–1600 (20) | units | How close to goal an AI carrier must be before it will shoot. |
 | `soloLane` | 50 | 20–160 (5) | units | How clear the line to goal must be before a central carrier goes alone. |
-| `foeError` | 0 | 0–35 (1) | degrees | Random rotation on every AI pass and shot. The AI's only source of mistakes. |
+| `foeError` | 3 | 0–35 (1) | degrees | Random rotation on every pass and shot — **the human's too**, applied in `doPass` at the moment the ball leaves, so the aim line still shows where you aimed. The base is 3 rather than 0 so the `passing` rating has room above 50 as well as below; rating 0/50/99 resolves to 8/3/0°. |
 | `runDepth` | 120 | 0–400 (5) | units | How far beyond the last opposing defender a band-0 run may target. |
 | `interceptEff` | 90 | 50–100 (1) | % | Share of top speed a player assumes he can sustain when solving an intercept. |
 | `planHold` | 500 | 100–1500 (50) | ms | How long an AI carrier keeps a non-kick plan before reconsidering. |
@@ -664,16 +823,16 @@ these values. They are hand-tuned by playing — do not change one without being
 | `lineGap` | 60 | 0–200 (5) | units | How far behind the deepest attacker the defensive line sits. |
 | `pressDist` | 900 | 200–2000 (20) | units | Ball must be within this of the defending goal before anyone presses it. |
 | `wobbleNear` | 600 | 100–1500 (20) | units | Distance from the ball at which a marker's drift fades to zero. |
-| `defReact` | 600 | 0–1200 (10) | ms | How stale a defender's picture of the *opposing team* is — press, marking, line and press trigger alike. 0 = frame-perfect mirroring. |
+| `defReact` | 80 | 0–1200 (10) | ms | How stale a defender's picture of the *opposing team* is — press, marking, line and press trigger alike. 0 = frame-perfect mirroring. |
 | `gkDepth` | 55 | 0–160 (5) | units | How far off his line the keeper stands. Positioning only — he saves with his body. |
-| `gkReaction` | 180 | 0–500 (10) | ms | Delay before the keeper reacts to a detected shot. |
-| `gkError` | 25 | 0–200 (5) | units | One-off random error on the sampled save point. |
-| `gkDiveSpeed` | 160 | 100–300 (5) | % | Speed multiplier while moving to the save point. |
-| `gkParrySpeed` | 520 | 200–1000 (20) | units/s | Above this the keeper parries instead of catching. |
-| `gkParryKeep` | 45 | 10–90 (5) | % | Share of speed a parried ball keeps. |
+| `gkReaction` | 120 | 0–500 (10) | ms | Delay before the keeper reacts to a detected shot. |
+| `gkError` | 15 | 0–200 (5) | units | One-off random error on the sampled save point. |
+| `gkDiveSpeed` | 130 | 100–300 (5) | % | Speed multiplier while moving to the save point. |
+| `gkParrySpeed` | 400 | 200–1000 (20) | units/s | Above this the keeper parries instead of catching. |
+| `gkParryKeep` | 35 | 10–90 (5) | % | Share of speed a parried ball keeps. |
 | `gkHoldMax` | 1200 | 300–3000 (100) | ms | How long the keeper is unstealable inside his own box. |
 | `gkVentureSafe` | 260 | 80–600 (10) | units | No opponent this close means he may dribble out. |
-| `gkVenture` | 150 | 0–500 (10) | units | How far beyond the box he may carry the ball. |
+| `gkVenture` | 300 | 0–500 (10) | units | How far beyond the box he may carry the ball. |
 | `gkRushDist` | 320 | 0–900 (10) | units | Carrier this close to goal and the keeper charges out. 0 disables the rush entirely. |
 | `gkRushLoneDist` | 520 | 0–900 (10) | units | Same, for a carrier who is through on goal — no pass on and nobody covering. |
 | `gkRushSpeed` | 130 | 80–250 (5) | % | Speed multiplier while rushing. Above 100 he is faster than the attacker. |
@@ -681,6 +840,8 @@ these values. They are hand-tuned by playing — do not change one without being
 | `gkRushCommit` | 380 | 0–1200 (20) | ms | How long a rush cannot be aborted, and how long he runs at a stale target. This is the whole beatability knob; needs to exceed the 500 ms touch cycle to matter. |
 | `gkClearSpeed` | 700 | 200–1400 (20) | units/s | Speed of the clearance when a rushing keeper reaches the ball. |
 | `gkClearSpread` | 40 | 0–90 (5) | degrees | Random lateral spread on that clearance. |
+| `accelTime` | 300 | 0–2000 (20) | ms | Time from a standstill to top speed. Computed from **this player's** maximum, so a slower player does not also take longer to get going. `0` switches momentum off entirely and every movement block falls back to its original expression, character for character — that branch is what keeps bit-identity with the pre-momentum game. The `T.accelTime > 0` gate is global on the base; the *rate* is per-player via the `accel` rating. |
+| `decelTime` | 20 | 20–2000 (20) | ms | Time from top speed to a standstill. Not scaled by any rating. |
 
 There is no positional id mapping any more — rows are generated from `TUNABLES` in order, so
 a new entry can go anywhere and nothing shifts.
@@ -780,7 +941,14 @@ Known rough edges (behaviour, not necessarily bugs):
   first touch wins until it lifts.
 - **`step()` returns early when a goal is scored**, so that frame leaves `drawAim` stale.
   Invisible at 60 fps.
-- **The post-goal pause is skippable** by tapping — the same code path that starts the game
-  from the overlay.
+- **The post-goal pause is skippable** by tapping the pitch (`skipPause()`). Full time is
+  not: that returns to the menu and only the button starts another match.
+- **Changing `teamSize` or `foeSize` wipes the stored ratings** for both teams, back to all
+  50. The stored shape no longer matches the squad, and partial merging is deliberately
+  refused. Set the squad size first, then rate the players.
+- **Ratings are per shirt number, not per person.** They are stored positionally, so if the
+  squad is rebuilt at the same size the ratings land on whoever now holds that slot.
+- **The menu reads `T` to show resolved values**, so a gear-panel change is reflected the next
+  time a stat sheet is opened. It never writes `T`.
 - **No out-of-play, throw-ins or corners.** Walls bounce everywhere except the goal mouth.
 - **UI is Czech only.**

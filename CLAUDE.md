@@ -28,13 +28,15 @@ Split into ES modules, no bundler and no build step — the browser loads them d
 
 ```
 index.html    DOM shell only          styles.css    all CSS
-js/config.js  constants, TUNABLES, T, DEFAULTS
+js/config.js  constants, TUNABLES, T, DEFAULTS, ratings model (STAT_SCALE, stat())
 js/state.js   S, ball, E, touch, joyBase, resize, mk, buildTeams, reset
+js/store.js   ratings persistence — ratings ONLY, never T
 js/util.js    geometry, who-is-who, intercept, doPass
 js/ai-off.js  assignRoles, mateTarget, attack     js/ai-def.js  defend
 js/ai-ball.js decide, driveCarrier                js/keeper.js  playKeeper, parry, keeperPlan
-js/match.js   score, goal, overlay               js/input.js   joystick
+js/match.js   score, goal, newMatch              js/input.js   joystick
 js/render.js  draw                               js/ui.js      gear panel
+js/menu.js    home screen, squads, stat sheets
 js/main.js    step, frame, boot
 ```
 
@@ -44,8 +46,10 @@ early for the ball owner and for an actively lunging player, because those two a
 `carryChase` and `lungeStep` instead — that early return is what keeps the two movement
 systems from fighting.
 
-- **Imports must stay one-way**: config → state → util → ai/keeper → match → input →
-  render/ui → main. No cycles. If a cycle appears, move the shared piece down a layer.
+- **Imports must stay one-way**: config → state → store → util → ai/keeper → match → input →
+  render/ui → menu → main. No cycles. If a cycle appears, move the shared piece down a layer.
+  `menu.js` imports `match.js` for `newMatch`, so `match.js` must never import `menu.js` —
+  the return to the menu at full time is triggered from `frame()` in `main.js` instead.
 - ES module imports are read-only bindings. Anything reassigned from more than one place
   lives as a **property** of `S`, `E`, `ball` or `T` — never reassign those objects
   themselves.
@@ -58,13 +62,25 @@ systems from fighting.
 - `DEFAULTS` is a deep copy of `T` at load, and the "Vrátit výchozí hodnoty" button restores
   it. That relationship must keep working.
 
-## Settings are never persisted
+## Tunables are never persisted — ratings are
 
-- `T` is initialised from `TUNABLES` at every boot. There is no storage layer and nothing is
-  written — do not add one back.
+Two different things, and the line between them is the whole point.
+
+- **`T` is never stored.** It is initialised from `TUNABLES` at every boot, so the game always
+  runs on what the source says. Nothing writes `T` except `js/ui.js` (the panel sliders and the
+  "Vrátit výchozí hodnoty" button) and the init loop in `config.js`. Do not add storage back.
 - `clearStore()` in `js/ui.js` deletes the old `fbproto_tuning_v1` payload at boot. Keep it.
 - Why: the old layer let a saved value on the phone silently override a new default in code,
-  which is indistinguishable from the change not working.
+  which is indistinguishable from the change not working. Hours were lost to it.
+- **Player ratings are stored**, in `js/store.js` under `fbproto_ratings_v1`, and that file is
+  the only one allowed to touch storage. It does not import `T` at all — check that it still
+  doesn't before trusting any change to it.
+- The stored payload is validated whole: if the squad shape does not match (team size changed,
+  a stat added or removed, a value out of 0–99, anything unparseable) it is **discarded
+  entirely** and every rating falls back to 50. Never merge partial stored data — a
+  half-restored squad is the same silent lie the tuning store was.
+- `buildTeams()` calls `hooks.applyRatings()` at its end, so a rebuild from the panel goes
+  through the same validation. That is where a `teamSize` change drops the stored ratings.
 
 ## You cannot feel the game
 
@@ -82,6 +98,12 @@ This is the important one. You have never played it and never will.
 - **Adding a tunable is one line** in the `TUNABLES` list in `js/config.js`. The panel rows,
   `T`'s initial value and `DEFAULTS` are all generated from it, and the group headings come
   from the `group` field. There is no positional id mapping to get wrong any more.
+- **Ratings scale a tunable, they never replace it.** Rating 50 is exactly 1.000× the value in
+  `TUNABLES`, so an all-50 squad must stay bit-identical to the game without ratings. Retuning
+  a stat's spread is one line in `STAT_SCALE` (`js/config.js`); widening it is a tuning
+  decision and needs asking, exactly like a default.
+- Every scaled constant is read through `stat(p, key)`. Never read `T.speedBase` and friends
+  directly — the two deliberate exceptions are documented at their call sites.
 - A changed default reaches the phone on the next reload — nothing is stored, so there is no
   "press Vrátit výchozí hodnoty to see it" caveat any more.
 

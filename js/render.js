@@ -71,16 +71,21 @@ export function draw(){
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2;
       ctx.strokeRect(X(p.x-hw), X(p.y-PH), X(hw*2), X(PH*2));
     }
-    // číslo na dresu; brankář místo čísla dostane tečku, ať je poznat i bez barvy.
+    // Číslo na dresu; brankář místo čísla dostane tečku, ať je poznat i bez barvy.
     // Čistě vykreslení — simulace `num` nikde nečte, takže na hru nemá vliv.
+    // Číslice vyplní skoro celý čtverec (na 375 px je hráč jen 9,4 css px široký, takže menší
+    // písmo se nedá přečíst) a dostane tmavý obrys, aby držela proti modré i červené výplni.
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     if(p.role === 'gk'){
       ctx.beginPath();
-      ctx.arc(X(p.x), X(p.y), X(PH*0.28), 0, Math.PI*2);
-      ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fill();
+      ctx.arc(X(p.x), X(p.y), X(PH*0.34), 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fill();
     } else {
-      ctx.font = 'bold ' + X(PH*1.35).toFixed(1) + 'px system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.font = '700 ' + X(PH*2.0).toFixed(1) + 'px system-ui, sans-serif';
+      ctx.lineWidth = Math.max(1, X(2.2)); ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.strokeText(String(p.num), X(p.x), X(p.y));
+      ctx.fillStyle = '#fff';
       ctx.fillText(String(p.num), X(p.x), X(p.y));
     }
     // ovládaný hráč: kroužek, ne výplň, a menší než odsazení míče (24.83) — vyplněný kotouč
@@ -91,11 +96,12 @@ export function draw(){
       ctx.arc(X(p.x), X(p.y), X(PH*1.2), 0, Math.PI*2);
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
     }
-    // směr
+    // Směr. Začíná až NA HRANĚ těla, ne ve středu: dřív vedl přes celý čtverec a přeškrtával
+    // číslo na dresu. Jako čumák trčící ven čte směr stejně a číslici nechá být.
     ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(X(p.x), X(p.y));
-    ctx.lineTo(X(p.x + p.fx*PH*1.5), X(p.y + p.fy*PH*1.5));
+    ctx.moveTo(X(p.x + p.fx*hw*1.1), X(p.y + p.fy*PH*1.1));
+    ctx.lineTo(X(p.x + p.fx*hw*1.95), X(p.y + p.fy*PH*1.95));
     ctx.stroke();
   }
 

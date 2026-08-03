@@ -13,6 +13,7 @@ import { playKeeper, parry, rushing, rushClear } from './keeper.js';
 import { goal, showScore } from './match.js';
 import { draw } from './render.js';
 import { buildPanel, clearStore } from './ui.js';
+import { buildMenu, openMenu } from './menu.js';
 
 function step(dt){
   S.time += dt;
@@ -270,6 +271,10 @@ function frame(now){
   var dt = Math.min((now-last)/1000, 0.033); last = now;
   updateJoyBase();
 
+  // Došlo se do cíle → zpátky do menu, se skóre. Skóre nuluje až další výkop, takže je
+  // na domovské obrazovce pořád vidět. Nic se nerozehrává samo a klepnutím se nic neopakuje.
+  if(S.matchOver && S.screen === 'game') openMenu(true);
+
   if(!S.running && !S.matchOver && S.deadTime > 0){
     S.deadTime -= dt;
     if(S.deadTime <= 0){ reset(S.kickNext); S.running = true; }
@@ -283,9 +288,12 @@ function frame(now){
 // ---- start ----
 window.addEventListener('resize', resize);
 resize();
-buildTeams();
+buildTeams();      // uložená hodnocení naskočí uvnitř, přes hooks.applyRatings
 buildPanel();
+buildMenu();
 clearStore();      // T se bere z config.js; případný starý uložený blob jen zahodíme
 
+// Rozestaví hřiště, ať je pod menu vidět, ale zápas nespustí — ten začíná až tlačítkem.
 reset(); showScore();
+openMenu(false);
 requestAnimationFrame(frame);

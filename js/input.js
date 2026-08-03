@@ -1,7 +1,7 @@
 // Joystick: dotyk i myš. Přihrávka se nabíjí za prahovým kruhem a odehraje se zvednutím prstu.
 import { T } from './config.js';
 import { S, cv, joyBase, touch } from './state.js';
-import { startTap } from './match.js';
+import { skipPause } from './match.js';
 
 export function updateJoyBase(){ joyBase.x = S.cssW * 0.5; joyBase.y = S.cssH - Math.max(96, T.joyR + 40); }
 
@@ -16,7 +16,9 @@ export function passSpeedFor(pw){
 }
 
 function onDown(x, y, id){
-  if(!S.running){ startTap(); return; }
+  if(S.screen !== 'game') return;        // v menu se plátnem neovládá nic
+  // pauza po gólu se dá přeskočit klepnutím; konec zápasu ne — z toho se jde do menu
+  if(!S.running){ if(!S.matchOver) skipPause(); return; }
   touch.active = true; touch.id = id; touch.x = x; touch.y = y;
 }
 function onMove(x, y, id){ if(touch.active && touch.id === id){ touch.x = x; touch.y = y; } }
@@ -59,4 +61,3 @@ cv.addEventListener('touchcancel', function(e){
 cv.addEventListener('mousedown', function(e){ onDown(e.clientX, e.clientY, 'm'); });
 window.addEventListener('mousemove', function(e){ onMove(e.clientX, e.clientY, 'm'); });
 window.addEventListener('mouseup', function(e){ onUp(e.clientX, e.clientY, 'm', false); });
-document.getElementById('start').addEventListener('click', function(){ startTap(); });

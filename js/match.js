@@ -2,12 +2,6 @@
 import { T } from './config.js';
 import { S, ball, reset } from './state.js';
 
-const ovEl = document.getElementById('start'),
-      ovT = document.getElementById('ovT'),
-      ovA = document.getElementById('ovA'),
-      ovB = document.getElementById('ovB');
-const INTRO = { t: ovT.innerHTML, a: ovA.innerHTML, b: ovB.innerHTML };
-
 export function flash(text, color){
   var f = document.getElementById('flash');
   f.textContent = text; f.style.color = color; f.classList.add('on');
@@ -25,25 +19,20 @@ export function goal(team){
   ball.pending = null; S.drawAim = null; S.aimFrom = null; S.recv = null;
   S.running = false; S.deadTime = 1.4;
   S.kickNext = team === 'b' ? 'r' : 'b';   // rozehrává inkasující
+  // Konec zápasu jen ZAZNAMENÁ. Návrat do menu obstará main.js, aby match.js nemusel
+  // importovat menu.js (menu.js importuje match.js kvůli newMatch) — importy zůstávají
+  // jednosměrné a skóre je do menu ještě vidět, protože ho vynuluje až další výkop.
   if(S.scoreB >= T.targetGoals || S.scoreR >= T.targetGoals){
-    S.matchOver = true; S.deadTime = 0;
-    ovT.innerHTML = S.scoreB > S.scoreR ? 'Vyhráls' : 'Prohráls';
-    ovA.innerHTML = 'Konečný stav ' + S.scoreB + ' : ' + S.scoreR + '.';
-    ovB.style.display = 'none';
-    ovEl.classList.remove('hidden');
+    S.matchOver = true; S.running = false; S.deadTime = 0;
   } else {
     flash(team === 'b' ? 'GÓL!' : 'Gól soupeře', team === 'b' ? '#4ade80' : '#f87171');
   }
 }
 export function newMatch(){
   S.scoreB = 0; S.scoreR = 0; S.matchOver = false; showScore();
-  ovT.innerHTML = INTRO.t; ovA.innerHTML = INTRO.a; ovB.innerHTML = INTRO.b;
-  ovB.style.display = '';
   S.kickNext = 'b';
   reset('b'); S.running = true; S.deadTime = 0;
 }
-export function startTap(){
-  ovEl.classList.add('hidden');
-  if(S.matchOver){ newMatch(); return; }
-  S.running = true; reset(S.kickNext);
-}
+// Klepnutí během pauzy po gólu ji přeskočí. S koncem zápasu to nemá nic společného —
+// tam se vrací do menu a odtud se rozehrává tlačítkem.
+export function skipPause(){ S.running = true; reset(S.kickNext); }
