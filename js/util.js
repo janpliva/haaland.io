@@ -152,7 +152,9 @@ export function driveMove(p, nx, ny, reqSpeed, dt){
   p.sf = mx > 0 ? Math.min(1, sp/mx) : 0;
 }
 
-export function moveTo(p, tx, ty, sp, dt){
+// `through` = cíl je POHYBLIVÝ (místo setkání s míčem). Takový bod se probíhá, ne dojíždí:
+// brzdná dráha ani ořez na d/dt tam nemají co dělat, protože se stejně posouvá.
+export function moveTo(p, tx, ty, sp, dt, through){
   var dx = tx-p.x, dy = ty-p.y, d = Math.sqrt(dx*dx+dy*dy);
   // sf = podíl z MAXIMÁLNÍ rychlosti hráče, ne z té zrovna zadané — jinak by zpomalený
   // hráč hlásil sf=1 a předkop by počítal s rychlostí, kterou nemá
@@ -176,6 +178,7 @@ export function moveTo(p, tx, ty, sp, dt){
     p.vx = ax/dt; p.vy = ay/dt;          // ať je vektor rychlosti platný i s vypnutou setrvačností
     return;
   }
+  if(through){ driveMove(p, d > 0.001 ? dx/d : p.fx, d > 0.001 ? dy/d : p.fy, sp, dt); return; }
   // Dojezd na cíl: bez brzdné dráhy hráč cíl přejede a několikrát ho překmitne (naměřeno
   // 16,7 jednotky a tři přejezdy). sqrt(2*a*d) je rychlost, ze které se ještě stihne zabrzdit
   // na vzdálenosti d při zpomalení a = speedOf/decelTime — klasická brzdná dráha v²=2ad.
@@ -385,7 +388,14 @@ export function lungeStep(dt){
     p.sf = full > 0 ? Math.min(1, Math.sqrt(ax*ax + ay*ay)/full) : 0;
     p.vx = ax/dt; p.vy = ay/dt;
   } else if(d > 0.001){
-    driveMove(p, dx/d, dy/d, Math.min(sp, d/dt), dt);
+    // Cuknutí se běží SKRZ, ne do zastavení. lungeSolve minimalizuje POTŘEBNOU rychlost, takže
+    // na míč běžící do prostoru je nejlevnější řešení zpomalit a počkat si — dřív to nic
+    // nestálo, se setrvačností je ale nízký povel aktivní brzda a zpátky na plnou to stojí celý
+    // accelTime. Naměřeno: 69 % cuknutí poroučelo pomaleji, než hráč běžel, medián 0,43 jeho
+    // rychlosti. Cuknutí proto smí rychlost jen PŘIDAT nebo změnit směr, nikdy ubrat.
+    // Ořez na d/dt tu taky nemá co dělat: to je dojezd, a bod setkání se hýbe.
+    var cur = Math.sqrt(p.vx*p.vx + p.vy*p.vy);
+    driveMove(p, dx/d, dy/d, Math.max(sp, cur), dt);
   }
 }
 

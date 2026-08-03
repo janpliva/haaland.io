@@ -65,7 +65,7 @@ export function defend(list, dt){
       // nezpožďuje — to není hlídání hráče, ale závod o balon — a odebrání v main.js
       // pořád počítá se skutečnou polohou míče.
       if(!ball.owner || pressOn){
-        var ipd = interceptPoint(r, bv); moveTo(r, ipd.x, ipd.y, speedOf(r), dt);
+        var ipd = interceptPoint(r, bv); moveTo(r, ipd.x, ipd.y, speedOf(r), dt, true);
       }
       // mimo dosah nevybíhá — čeká na spojnici míč–vlastní branka, blok se nerozbije
       else moveTo(r, hx, hy, speedOf(r)*0.9, dt);
@@ -76,7 +76,7 @@ export function defend(list, dt){
       var td = dist(r, pool[q]);
       if(td < tdBest){ tdBest = td; ti = q; tgt = pool[q]; }
     }
-    if(!tgt){ var ipf = interceptPoint(r, bv); moveTo(r, ipf.x, ipf.y, speedOf(r)*0.85, dt); continue; }
+    if(!tgt){ var ipf = interceptPoint(r, bv); moveTo(r, ipf.x, ipf.y, speedOf(r)*0.85, dt, true); continue; }
     pool.splice(ti, 1);
 
     // postav se mezi hlídaného a VLASTNÍ BRANKU (dřív to bylo mezi něj a míč)

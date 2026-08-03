@@ -110,7 +110,7 @@ export function attack(list, carrier, dt){
   for(var k=0;k<list.length;k++){
     var m = list[k];
     if(m === S.ctrl || m === carrier || m.role === 'gk') continue;
-    if(m === chaser){ var ipa = interceptPoint(m); moveTo(m, ipa.x, ipa.y, speedOf(m), dt); continue; }
+    if(m === chaser){ var ipa = interceptPoint(m); moveTo(m, ipa.x, ipa.y, speedOf(m), dt, true); continue; }
     m.think -= dt;
     if(m.think <= 0){
       var t = mateTarget(m, ref);
