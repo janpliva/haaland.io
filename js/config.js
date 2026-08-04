@@ -11,6 +11,11 @@ export const SETTLE = 0.3;             // než AI po zisku míče smí kopnout �
 
 export function dirOf(team){ return team === 'b' ? -1 : 1; }   // kterým směrem tým útočí
 
+// Délky zápasu na čas, v sekundách. SCHVÁLNĚ to není tunable: tohle se nehledá posuvníkem
+// při hraní, tohle se edituje tady v souboru. Menu si nabídku generuje z tohohle pole, takže
+// přidaný nebo odebraný řádek se v něm objeví sám a nikde jinde se nic měnit nemusí.
+export const MATCH_TIMES = [60, 180, 300];   // sekundy
+
 export const TUNABLES = [
   // Kolik hráčů v poli; brankář se do počtu nepočítá. Změna rozehraje nový zápas.
   { key:'teamSize',      def:5,    min:1,   max:6,    step:1,   label:'Hráčů v mém týmu',            group:'Týmy', rebuild:true },

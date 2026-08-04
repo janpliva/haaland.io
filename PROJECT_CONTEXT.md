@@ -21,9 +21,11 @@ The ball is always physically simulated and never attached to anyone. Dribbling 
 real kicks: you knock it ahead, it rolls under friction, and your player automatically runs at
 it until his body reaches it — and that contact is the only moment your input reaches the ball.
 
-There are goals at both ends, a keeper each, and a scoreline; first to `targetGoals` wins.
-A shot is just a pass — there is no separate shooting gesture, deliberately. Both teams play
-football: whoever touches the ball gets it, and then attacks the other end.
+There are goals at both ends, a keeper each, and a scoreline. A match runs in one of two
+modes, chosen on the home screen: **na góly** (first to `targetGoals`) or **na čas** (the
+clock decides, and a level score at full time goes to a golden goal). A shot is just a pass —
+there is no separate shooting gesture, deliberately. Both teams play football: whoever touches
+the ball gets it, and then attacks the other end.
 
 The app opens on a **menu**, not on the pitch. Nothing auto-starts and nothing auto-restarts:
 you press "Hrát zápas" to play, and full time drops you back to the menu with the score. Each
@@ -340,6 +342,36 @@ Reaching `targetGoals` sets `matchOver` and stops the clock. `frame()` in `main.
 returns to the menu with the score; `newMatch()` clears the score at the next kickoff, so the
 result stays readable on the home screen until you start again.
 
+### Two match modes: to a goal target, or on the clock
+`S.mode` is `'goals'` (the original behaviour) or `'timed'`, picked on the home screen. It is
+**not** a tunable and never touches `T`.
+
+- **Na góly.** Unchanged: `goal()` ends the match when either score reaches `targetGoals`.
+  The clock does not exist — `S.clock` stays 0 and the HUD's middle slot shows the goal target
+  instead. Verified bit-identical to the pre-mode game over six seeded matches.
+- **Na čas.** `S.clock` counts down from `S.matchLen`, one of the durations in `MATCH_TIMES`
+  (`config.js`, seconds). `targetGoals` **does not apply at all** — being ten goals up ends
+  nothing; only the clock does.
+- **The clock ticks in exactly one place**: `tickClock(dt)` in `match.js`, called from the top
+  of `step()`. That is the whole reason it cannot run at the menu or during the post-goal
+  pause — `step()` is not called in either case, so there is no separate "is it paused" test to
+  get wrong. Measured: 0 clock movement over 600 menu frames against a planted non-zero probe,
+  and 0 over the 83 paused frames of a goal pause (bit-identical value before and after).
+- **Full time.** If one team leads, `tickClock` sets `matchOver`, and `step()` **returns
+  immediately** so no goal can land on the frame after time expired. If the score is level it
+  sets `S.sudden` instead: the clock stops at 0 and play continues.
+- **Golden goal** (`S.sudden`). The next goal by either side ends the match — `goal()` reads
+  `S.sudden` in place of the `targetGoals` test. There is no time limit on it. On screen it is
+  a gold pill reading **ZLATÝ GÓL** pinned under the HUD for as long as it lasts, plus the
+  stopped `0:00` and its label turned gold. `newMatch()` always clears it.
+- Full time returns to the menu through the same path as a goal-limit finish: `matchOver` is
+  only recorded, and `frame()` opens the menu with the result.
+
+Because the clock accumulates a float, full time lands on the first frame where the remainder
+is ≤ 0. At a fixed 60 fps that is exact for 180 s and 300 s and one frame (16.7 ms) late for
+60 s — `60 − 3600·(1/60)` leaves +2.1e-12. On a phone `dt` varies every frame anyway, so the
+last frame is approximate by construction; no epsilon is applied.
+
 ### The dribble is a physical touch cycle with an automatic chase
 The ball is never attached to anyone and is never driven by a formula. It always carries
 velocity, friction and wall bounces. A dribble is a repeating cycle of real kicks:
@@ -579,6 +611,12 @@ showing its squad as shirt-number chips and their overall ratings.
 
 - **Nothing auto-starts.** Boot calls `reset()` so the pitch is dressed behind the menu, but
   `S.running` stays false until the button is pressed.
+- **The mode selector sits directly above "Hrát zápas"**: one row for *Na góly / Na čas*, and
+  below it — only when *Na čas* is selected — a row of durations **generated from
+  `MATCH_TIMES`**, one button per entry, labelled `M:SS`. Nothing counts the entries, so
+  editing that array in `config.js` is the whole change. Both selections are visible without
+  opening anything; the chosen one takes the team colour, leaving green to mean "go".
+  Measured at 375 px: mode buttons 154×46 css px, duration buttons 100×46, no overflow.
 - **Full time returns to the menu** with the score, which stays visible until the next kickoff
   clears it. There is no tap-to-replay: `goal()` only records `matchOver`, and `frame()` in
   `main.js` opens the menu. The post-goal pause *is* still skippable by tapping — that is a
@@ -608,10 +646,10 @@ one safe one. (This rationale is inferred from the code — the lane penalty
 
 ## 4. Architecture
 
-`index.html` (77) is a DOM shell, `styles.css` (242) the CSS, and the JS lives in `js/`:
-`config` (210), `state` (223), `store` (79), `util` (496), `ai-off` (121), `ai-def` (134),
-`ai-ball` (116), `keeper` (174), `match` (38), `input` (63), `render` (190), `ui` (63),
-`menu` (264), `main` (299).
+`index.html` (97) is a DOM shell, `styles.css` (281) the CSS, and the JS lives in `js/`:
+`config` (215), `state` (228), `store` (115), `util` (496), `ai-off` (121), `ai-def` (134),
+`ai-ball` (116), `keeper` (174), `match` (88), `input` (63), `render` (190), `ui` (63),
+`menu` (304), `main` (305).
 
 Imports run one way only: config → state → store → util → ai/keeper → match → input →
 render/ui → menu → main. Because module bindings are read-only, every value that is
@@ -634,6 +672,8 @@ resize()                       canvas sizing + field scale      state.js
 mk / buildTeams / reset()      entities, kickoff positions      state.js
 STAT_SCALE / ratingMul / stat  ratings → scaled constants       config.js
 applyStoredRatings/saveRatings ratings persistence              store.js
+applyStoredMode/saveMode       match-mode persistence           store.js
+tickClock / showClock          the clock, full time, the HUD    match.js
 input handlers                 touch + mouse → touch{}          input.js
 bufferInput                    stores intent, never moves       util.js
 startKick / holdBall           the touch cycle                  util.js
@@ -691,8 +731,10 @@ possession started), `claim` / `claimX` / `claimY` / `lungeNeed` (reception), `p
 `S` holds `screen` (`'menu'` or `'game'`), `ctrl`, `time`, `lockOut`, `lockedPlayer`,
 `gkCleared` / `gkClearOut`, `lastTeam`, `kickNext`, `scoreB`, `scoreR`, `matchOver`,
 `running`, `deadTime`, `roleTimer`, `lastCarrier`, `drawAim`, `aimFrom` / `recv` (one-tap),
-the viewport values `cssW`/`cssH`/`scale`/`FIELD_H`, and the guard counters `gapWarn` /
-`gapWarnLog`.
+the match mode (`mode`, `matchLen`, `clock`, `sudden`) and the viewport values
+`cssW`/`cssH`/`scale`/`FIELD_H`. The guard counters `gapWarn` / `gapWarnLog` are **not**
+declared in `S` — `step()` creates them on the first warning, so they are absent until one
+fires.
 
 ### Loop
 `requestAnimationFrame(frame)`. `dt` is capped at 0.033 s, so a stall slows the sim rather
@@ -779,7 +821,16 @@ specifically so the old failure cannot return through this door:
   all 50. That is deliberate and is the explicit answer to "what happens when the squad
   changes", not an accident of the validation.
 - Saving happens on every rating mutation: on `change` (thumb lifted) for a slider, immediately
-  for bulk shift, "Náhodně" and "Výchozí". Pressing "Výchozí" on both teams leaves a valid
+  for bulk shift, "Náhodně" and "Výchozí".
+
+The **match mode** is stored the same way and under the same rules, in its own key
+`fbproto_mode_v1` holding `{ v:1, mode, len }`. It is a menu choice, not a tunable, and
+`store.js` still does not import `T`. Validated whole and discarded whole: wrong version,
+an unknown mode string, a non-numeric length, a length no longer present in `MATCH_TIMES`, or
+unparseable JSON all drop the payload, delete the key and fall back to *Na góly* with
+`MATCH_TIMES[0]`. Editing `MATCH_TIMES` in `config.js` therefore drops a saved duration that
+no longer exists rather than playing a length the source does not contain — the same
+"discard, never merge" rule as the ratings. Pressing "Výchozí" on both teams leaves a valid
   all-50 payload, which is the supported way to wipe it.
 
 ## 5. Tunables
@@ -855,6 +906,7 @@ a new entry can go anywhere and nothing shifts.
 | `BALL_R` | 10 | `config.js` |
 | `CONTACT` | `PH + BALL_R` = **25** units — the contact test, and where a held ball sits | `config.js` |
 | `GOAL_DEPTH` | 60 units — drawn goal area only, no effect on play | `config.js` |
+| `MATCH_TIMES` | `[60, 180, 300]` seconds — the timed-match durations offered by the menu. **Deliberately not a tunable**: it is edited in the file, not found with a slider, and the menu generates one button per entry | `config.js` |
 | `STEAL_LOCK` | 0.5 s before the player who lost the ball can retake it | `config.js` |
 | `SETTLE` | 0.3 s before an AI that just gained the ball may kick it | `config.js` |
 | `LUNGE_TAKEOVER` | 0.15 — the lunge only drives the player above 15% of normal speed | `util.js` |
@@ -883,8 +935,9 @@ There is no build, no install, no test suite. Editing `index.html` and reloading
 entire loop.
 
 Deploy: GitHub Pages serving `main` at the repo root (`origin` is
-`https://github.com/janpliva/haaland.io.git`). Pushing to `main` publishes. There is no
-workflow file, no `CNAME`, and no `.nojekyll` in the repo — see open questions.
+`https://github.com/janpliva/haaland.io.git`). Pushing to `main` publishes.
+`.github/workflows/jekyll-gh-pages.yml` is committed (added in `09dc151`); there is no `CNAME`
+and no `.nojekyll` — see open questions.
 
 ## 7. Open questions and rough edges
 
@@ -943,6 +996,15 @@ Known rough edges (behaviour, not necessarily bugs):
   Invisible at 60 fps.
 - **The post-goal pause is skippable** by tapping the pitch (`skipPause()`). Full time is
   not: that returns to the menu and only the button starts another match.
+- **A golden goal has no time limit.** If neither side scores, a timed match runs forever.
+  Deliberate — the alternative is a draw, and the brief says the next goal decides it.
+- **A 60 s match runs one frame long** at a fixed 60 fps (16.7 ms), because `60 − 3600·(1/60)`
+  leaves +2.1e-12 and the clock ends on `<= 0`. 180 s and 300 s are exact. Not worth an epsilon:
+  on a phone `dt` varies, so the last frame overshoots by an arbitrary fraction anyway.
+- **The clock is wall time, not playing time.** Post-goal pauses do not consume it, so a timed
+  match takes longer than its length in real seconds — 1.4 s per goal.
+- **`targetGoals` is dead in a timed match.** The slider still moves and the HUD's middle slot
+  still shows it in *Na góly*; in *Na čas* nothing reads it.
 - **Changing `teamSize` or `foeSize` wipes the stored ratings** for both teams, back to all
   50. The stored shape no longer matches the squad, and partial merging is deliberately
   refused. Set the squad size first, then rate the players.

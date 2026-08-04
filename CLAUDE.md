@@ -28,13 +28,13 @@ Split into ES modules, no bundler and no build step — the browser loads them d
 
 ```
 index.html    DOM shell only          styles.css    all CSS
-js/config.js  constants, TUNABLES, T, DEFAULTS, ratings model (STAT_SCALE, stat())
+js/config.js  constants, MATCH_TIMES, TUNABLES, T, DEFAULTS, ratings model (STAT_SCALE, stat())
 js/state.js   S, ball, E, touch, joyBase, resize, mk, buildTeams, reset
-js/store.js   ratings persistence — ratings ONLY, never T
+js/store.js   ratings + match-mode persistence — never T
 js/util.js    geometry, who-is-who, intercept, doPass
 js/ai-off.js  assignRoles, mateTarget, attack     js/ai-def.js  defend
 js/ai-ball.js decide, driveCarrier                js/keeper.js  playKeeper, parry, keeperPlan
-js/match.js   score, goal, newMatch              js/input.js   joystick
+js/match.js   score, goal, clock, newMatch       js/input.js   joystick
 js/render.js  draw                               js/ui.js      gear panel
 js/menu.js    home screen, squads, stat sheets
 js/main.js    step, frame, boot
@@ -75,6 +75,11 @@ Two different things, and the line between them is the whole point.
 - **Player ratings are stored**, in `js/store.js` under `fbproto_ratings_v1`, and that file is
   the only one allowed to touch storage. It does not import `T` at all — check that it still
   doesn't before trusting any change to it.
+- **The match mode is stored too**, in the same file under its own key `fbproto_mode_v1`
+  (`{ v, mode, len }`). Same rules: validated whole, discarded whole, no path to `T`. The
+  durations it validates against live in `MATCH_TIMES` in `js/config.js` — that array is
+  **not** a tunable and must not become one; it is edited in the file, and the menu builds one
+  button per entry rather than hardcoding a count.
 - The stored payload is validated whole: if the squad shape does not match (team size changed,
   a stat added or removed, a value out of 0–99, anything unparseable) it is **discarded
   entirely** and every rating falls back to 50. Never merge partial stored data — a
