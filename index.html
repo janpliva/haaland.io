@@ -13,10 +13,16 @@
 <body>
 <div id="wrap"><canvas id="c"></canvas></div>
 
+<!-- Prostřední pole nese hodinu (na čas) nebo cíl v gólech — nikdy nezůstane prázdné.
+     Obsah plní showClock() v js/match.js. -->
 <div id="hud">
   <div class="stat"><span class="k">Ty</span><span class="v" id="scB">0</span></div>
+  <div class="stat mid"><span class="k" id="clockK">Do gólů</span><span class="v" id="clockV">5</span></div>
   <div class="stat right"><span class="k">Soupeř</span><span class="v" id="scR">0</span></div>
 </div>
+
+<!-- Svítí po celou dobu zlatého gólu, ne jen při přechodu. -->
+<div id="golden" hidden>Zlatý gól</div>
 
 <div id="gear">⚙</div>
 
@@ -39,6 +45,20 @@
       <span class="tcSub" id="subR"></span>
       <span class="tcRoster" id="rosR"></span>
     </button>
+
+    <!-- Volba režimu. Nabídka délek se generuje z MATCH_TIMES v js/config.js — kolik je
+         v poli řádků, tolik je tlačítek. -->
+    <div class="modeBox">
+      <div class="segLab">Režim zápasu</div>
+      <div class="segs" id="modeSegs">
+        <button class="seg" data-mode="goals">Na góly</button>
+        <button class="seg" data-mode="timed">Na čas</button>
+      </div>
+      <div id="timeWrap" hidden>
+        <div class="segLab">Délka zápasu</div>
+        <div class="segs" id="timeSegs"></div>
+      </div>
+    </div>
 
     <button class="play" id="playBtn">Hrát zápas</button>
 

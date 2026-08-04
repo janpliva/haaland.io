@@ -1,6 +1,6 @@
 // Veškerý měnitelný stav hry. Importy jsou v modulech jen pro čtení, takže všechno,
 // co se přiřazuje z víc míst, musí žít jako VLASTNOST objektu — proto S, E, ball, touch.
-import { T, FIELD_W, PH, CONTACT, dirOf, mkRatings, resolveRatings } from './config.js';
+import { T, FIELD_W, PH, CONTACT, dirOf, mkRatings, resolveRatings, MATCH_TIMES } from './config.js';
 
 export const cv = document.getElementById('c');
 export const ctx = cv.getContext('2d');
@@ -14,6 +14,11 @@ export const S = {
   // 'menu' = domovská obrazovka / soupisky, 'game' = běží zápas. Nic se nerozehrává samo.
   screen:'menu',
   kickNext:'b', scoreB:0, scoreR:0, matchOver:false, running:false,
+  // Režim zápasu. 'goals' = do T.targetGoals (původní chování), 'timed' = na čas, kdy o konci
+  // rozhoduje JEN hodina. `matchLen` je zvolená délka ze seznamu MATCH_TIMES, `clock` zbývající
+  // čas v sekundách a `sudden` znamená, že se hraje na zlatý gól — hodina stojí a rozhoduje
+  // první branka. Odpočet obsluhuje tickClock v match.js, volaný ze step().
+  mode:'goals', matchLen:MATCH_TIMES[0] || 0, clock:0, sudden:false,
   deadTime:0, roleTimer:0, lastCarrier:null, drawAim:null,
   // odkud se míří a kdo míč podle nároku zpracuje jako první (jednodotyková přihrávka)
   aimFrom:null, recv:null,

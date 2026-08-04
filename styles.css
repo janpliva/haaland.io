@@ -17,6 +17,22 @@ canvas { display:block; width:100%; height:100%; }
 .stat .k { font-size:10px; letter-spacing:.14em; text-transform:uppercase; opacity:.5; display:block; }
 .stat .v { font-size:26px; font-weight:600; line-height:1.1; }
 .stat.right { text-align:right; }
+/* Hodina uprostřed. Musí být čitelná proti trávníku stejně jako skóre, proto stejná velikost
+   a k tomu tmavý stín — číslo se pohybuje přes světlé i tmavé pruhy hřiště. */
+.stat.mid { text-align:center; text-shadow:0 1px 3px rgba(0,0,0,.55); }
+#hud.gold .stat.mid .k { color:#fbbf24; opacity:.95; }
+#hud.gold .stat.mid .v { color:#fbbf24; }
+
+/* Cedule zlatého gólu: svítí celou dobu, co zlatý gól platí. */
+#golden {
+  position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index:3;
+  padding:6px 14px; border-radius:999px; pointer-events:none;
+  background:rgba(20,14,0,.66); border:1px solid rgba(251,191,36,.75); color:#fbbf24;
+  font-size:13px; font-weight:700; letter-spacing:.18em; text-transform:uppercase;
+  text-shadow:0 1px 3px rgba(0,0,0,.6); animation:goldPulse 1.1s ease-in-out infinite;
+}
+#golden[hidden] { display:none; }
+@keyframes goldPulse { 0%,100% { opacity:1; } 50% { opacity:.55; } }
 
 #gear {
   position:fixed; top:52px; right:14px; width:38px; height:38px; border-radius:10px;
@@ -66,7 +82,8 @@ input[type=range]::-moz-range-thumb { width:17px; height:17px; border:0; border-
   --accent:var(--own);
   --pad:16px;
 }
-body.inMenu #hud, body.inMenu #gear, body.inMenu #panel, body.inMenu #flash { display:none; }
+body.inMenu #hud, body.inMenu #gear, body.inMenu #panel, body.inMenu #flash,
+body.inMenu #golden { display:none; }
 
 .screen {
   position:fixed; inset:0; z-index:5; color:var(--ink);
@@ -132,6 +149,28 @@ body.inMenu #hud, body.inMenu #gear, body.inMenu #panel, body.inMenu #flash { di
 .chip b { font-size:12px; font-weight:700; font-variant-numeric:tabular-nums; }
 .chip i { font-size:11px; font-style:normal; color:var(--dim); font-variant-numeric:tabular-nums; }
 .chip.gk b { color:#a3e635; }
+
+/* ---------- volba režimu ---------- */
+/* Sedí přímo nad tlačítkem „Hrát zápas", takže je volba vidět v momentě, kdy se na něj sahá.
+   Tlačítka se lámou do řádků, takže delší seznam MATCH_TIMES nic nerozbije; palcová výška
+   46 px platí pro každé z nich. */
+.modeBox {
+  flex:0 0 auto; display:flex; flex-direction:column; gap:9px;
+  padding:13px; border-radius:16px; background:var(--card); border:1px solid var(--line);
+}
+.segLab { font-size:10px; letter-spacing:.15em; text-transform:uppercase; color:var(--faint); }
+#timeWrap { display:flex; flex-direction:column; gap:9px; }
+#timeWrap[hidden] { display:none; }        /* [hidden] samo prohraje s display:flex */
+.segs { display:flex; flex-wrap:wrap; gap:8px; }
+.seg {
+  flex:1 1 84px; min-height:46px; padding:11px 8px; border-radius:12px; cursor:pointer;
+  background:rgba(255,255,255,.05); border:1px solid var(--line); color:var(--dim);
+  font:inherit; font-size:14.5px; font-weight:600; font-variant-numeric:tabular-nums;
+}
+.seg:not(.on):active { background:rgba(255,255,255,.12); }
+/* Vybraná volba je v barvě týmu, ne zeleně: zelená v tomhle menu znamená AKCI a patří
+   tlačítku „Hrát zápas". Jinak by nad sebou byly tři stejně zelené plochy. */
+.seg.on { background:var(--accent); border-color:var(--accent); color:#06131f; }
 
 .play {
   flex:0 0 auto; padding:19px; border-radius:16px; cursor:pointer;

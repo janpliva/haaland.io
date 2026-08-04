@@ -3,11 +3,11 @@
 // Menu ladí HRÁČE, panel pod ozubeným kolem ladí HRU. Schválně se to nemíchá: tady se čte
 // T jen proto, aby šlo ukázat, co z hodnocení vyleze za skutečnou hodnotu — NIKDY se do něj
 // nezapisuje. Uložená data končí u hodnocení (viz store.js) a k T nevede žádná cesta.
-import { T, STAT_SCALE, STAT_LABEL, OUTFIELD_STATS, KEEPER_STATS,
+import { T, STAT_SCALE, STAT_LABEL, OUTFIELD_STATS, KEEPER_STATS, MATCH_TIMES,
          ratingMul, resolveRatings, keysOfStat } from './config.js';
 import { S, E } from './state.js';
-import { saveRatings } from './store.js';
-import { newMatch, showScore } from './match.js';
+import { saveRatings, saveMode, applyStoredMode } from './store.js';
+import { newMatch, showScore, showClock, fmtTime } from './match.js';
 
 const $ = function(id){ return document.getElementById(id); };
 const SCREENS = ['menu','squad','sheet'];
@@ -59,6 +59,39 @@ function paintHome(){
     });
   });
 }
+// ---- volba režimu ----
+// Nabídka délek se GENERUJE z MATCH_TIMES: kolik je v poli položek, tolik je tlačítek.
+// Nikde se počet neopisuje, takže přidaný řádek v config.js se objeví sám.
+function buildTimeSegs(){
+  var wrap = $('timeSegs');
+  wrap.innerHTML = '';
+  MATCH_TIMES.forEach(function(sec){
+    var b = document.createElement('button');
+    b.className = 'seg'; b.dataset.len = String(sec); b.textContent = fmtTime(sec);
+    b.addEventListener('click', function(){
+      S.matchLen = sec; saveMode(); paintMode(); showClock();
+    });
+    wrap.appendChild(b);
+  });
+}
+function paintMode(){
+  var timed = S.mode === 'timed';
+  $('modeSegs').querySelectorAll('.seg').forEach(function(b){
+    b.classList.toggle('on', (b.dataset.mode === 'timed') === timed);
+  });
+  $('timeWrap').hidden = !timed;                 // délka se vybírá jen u zápasu na čas
+  $('timeSegs').querySelectorAll('.seg').forEach(function(b){
+    b.classList.toggle('on', +b.dataset.len === S.matchLen);
+  });
+}
+function setMode(mode){
+  S.mode = mode;
+  // Kdyby uložená délka po editaci MATCH_TIMES v poli nebyla, spadne se na první z něj —
+  // hrát na čas, který ve zdrojáku není, nedává smysl.
+  if(MATCH_TIMES.indexOf(S.matchLen) < 0) S.matchLen = MATCH_TIMES[0] || 0;
+  saveMode(); paintMode(); showClock();
+}
+
 export function openMenu(withResult){
   S.screen = 'menu'; S.running = false; S.deadTime = 0;
   var el = $('lastResult');
@@ -70,6 +103,7 @@ export function openMenu(withResult){
                    '</span><span class="rNum">' + b + ' : ' + r + '</span>';
   }
   paintHome();
+  paintMode();
   show('menu');
 }
 
@@ -246,6 +280,12 @@ export function openSheet(p){
 
 // ---- zapojení ----
 export function buildMenu(){
+  applyStoredMode();          // uložená volba, nebo výchozí „na góly" když tvar nesedí
+  buildTimeSegs();
+  $('modeSegs').querySelectorAll('.seg').forEach(function(b){
+    b.addEventListener('click', function(){ setMode(b.dataset.mode); });
+  });
+  paintMode();
   $('cardB').addEventListener('click', function(){ openSquad('b'); });
   $('cardR').addEventListener('click', function(){ openSquad('r'); });
   $('playBtn').addEventListener('click', startMatch);

@@ -10,13 +10,18 @@ import { attack } from './ai-off.js';
 import { defend } from './ai-def.js';
 import { driveCarrier } from './ai-ball.js';
 import { playKeeper, parry, rushing, rushClear } from './keeper.js';
-import { goal, showScore } from './match.js';
+import { goal, showScore, showClock, tickClock } from './match.js';
 import { draw } from './render.js';
 import { buildPanel, clearStore } from './ui.js';
 import { buildMenu, openMenu } from './menu.js';
 
 function step(dt){
   S.time += dt;
+  // Hodiny běží jen v normální hře, a je to tímhle místem: v menu ani v pauze po gólu se
+  // step() nevolá vůbec, ve zlatém gólu si tickClock sám stojí. Konec času ukončí zápas
+  // hned a zbytek snímku se přeskočí, aby po vypršení nemohl padnout gól. V režimu na góly
+  // se vrátí rovnou a nic nepočítá.
+  if(tickClock(dt)) return;
   if(S.lockOut > 0) S.lockOut -= dt;
   if(S.gkClearOut > 0) S.gkClearOut -= dt;
 
@@ -281,6 +286,7 @@ function frame(now){
   }
 
   if(S.running) step(dt);
+  showClock();      // sám si hlídá, že do DOMu sáhne jen při změně textu
   draw();
   requestAnimationFrame(frame);
 }
@@ -294,6 +300,6 @@ buildMenu();
 clearStore();      // T se bere z config.js; případný starý uložený blob jen zahodíme
 
 // Rozestaví hřiště, ať je pod menu vidět, ale zápas nespustí — ten začíná až tlačítkem.
-reset(); showScore();
+reset(); showScore(); showClock();
 openMenu(false);
 requestAnimationFrame(frame);

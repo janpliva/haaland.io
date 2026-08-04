@@ -11,12 +11,18 @@
 //     ZAHODÍ SE CELÝ a jede se na samých padesátkách — nic se nedoslučuje po kouskách,
 //     protože částečně načtená data jsou přesně ten druh tiché lži, kvůli které to letělo
 //
+// Ukládá se tu ještě volba REŽIMU zápasu (na góly / na čas a délka). Platí pro ni přesně
+// totéž a má vlastní klíč: je to volba menu, ne laditelná hodnota, MATCH_TIMES se čte
+// z config.js a k T ani odtud nevede žádná cesta — tenhle modul T pořád neimportuje.
+//
 // Import zůstává jednosměrný: config → state → store.
-import { OUTFIELD_STATS, KEEPER_STATS, resolveRatings, mkRatings } from './config.js';
-import { E, hooks } from './state.js';
+import { OUTFIELD_STATS, KEEPER_STATS, resolveRatings, mkRatings, MATCH_TIMES } from './config.js';
+import { S, E, hooks } from './state.js';
 
 const KEY = 'fbproto_ratings_v1';
 const VERSION = 1;
+const MODE_KEY = 'fbproto_mode_v1';
+const MODE_VERSION = 1;
 
 function statsFor(p){ return p.role === 'gk' ? KEEPER_STATS : OUTFIELD_STATS; }
 
@@ -77,3 +83,33 @@ export function applyStoredRatings(){
   return ok;
 }
 hooks.applyRatings = applyStoredRatings;      // state.buildTeams() ji volá přes tenhle hák
+
+// ---- volba režimu zápasu ----
+// Vlastní klíč, vlastní kontrola, a stejné pravidlo: co nesedí s dnešní konfigurací, se
+// ZAHODÍ CELÉ a jede se na výchozím „na góly". Konkrétně délka musí být pořád v MATCH_TIMES —
+// když se pole v config.js přepíše, uložená délka z něj vypadne a volba spadne na výchozí,
+// místo aby se hrálo na čas, který v souboru není.
+export function saveMode(){
+  try {
+    window.localStorage.setItem(MODE_KEY, JSON.stringify({
+      v: MODE_VERSION, mode: S.mode, len: S.matchLen
+    }));
+  } catch(e){}          // plné/zakázané úložiště hru nesmí položit
+}
+export function applyStoredMode(){
+  var raw = null, d = null;
+  try {
+    raw = window.localStorage.getItem(MODE_KEY);
+    if(raw) d = JSON.parse(raw);
+  } catch(e){ d = null; }
+  var ok = !!d && d.v === MODE_VERSION &&
+           (d.mode === 'goals' || d.mode === 'timed') &&
+           typeof d.len === 'number' && MATCH_TIMES.indexOf(d.len) >= 0;
+  if(ok){ S.mode = d.mode; S.matchLen = d.len; }
+  else {
+    S.mode = 'goals'; S.matchLen = MATCH_TIMES[0] || 0;
+    // maže se i nerozparsovatelný blob, ne jen ten, co se přečetl a neprošel kontrolou
+    if(raw) { try { window.localStorage.removeItem(MODE_KEY); } catch(e){} }
+  }
+  return ok;
+}
