@@ -91,14 +91,14 @@ export const TUNABLES = [
   // Při 0 je to přesně dosavadní pohled shora (z ze vzorce vypadne) — to je kontrola, proti
   // které se všechno ostatní měří. Výška hráče je čistě vykreslení, simulace ji nikde nečte;
   // při 0 jsou z hráčů zase ploché čtverce.
-  { key:'camTilt',       def:25,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
+  { key:'camTilt',       def:15,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
   { key:'playerH',       def:65,   min:0,   max:120,  step:5,   label:'Výška hráče',                 group:'Kamera' },
   // Kamera se přibližuje a jede za míčem, ale JEN po délce hřiště — do stran se nepanuje nikdy.
   // camZoom 100 + camFollow 0 je přesně ten pevný pohled na celé hřiště, co tu byl dřív, a je
   // to kontrola, proti které se všechno měří. Nad 100 se ořízne šířka (kamera stojí na středu),
   // takže přiblížení se platí krajními pruhy hřiště — čísla jsou v PR.
   // POZOR na strop: aby bylo vidět aspoň 60 % délky hřiště, smí camZoom na 375×812 nejvýš 199.
-  { key:'camZoom',       def:120,  min:100, max:220,  step:5,   label:'Přiblížení kamery (%)',       group:'Kamera' },
+  { key:'camZoom',       def:110,  min:100, max:220,  step:5,   label:'Přiblížení kamery (%)',       group:'Kamera' },
   { key:'camFollow',     def:100,  min:0,   max:100,  step:5,   label:'Sledování míče (%)',          group:'Kamera' },
   // Časová konstanta dojezdu, ne rychlost: kamera ujede za camSmooth ms 63 % zbývající
   // odchylky, ať běží hra na jakémkoliv snímkování.
@@ -112,7 +112,7 @@ export const TUNABLES = [
   // Branka má výšku: gól platí jen mezi tyčemi A POD břevnem. Lob, který by dřív propadl
   // do sítě v jakékoliv výšce, teď může jít přes. Tyč i břevno míč odrazí zpátky do hry
   // stejnou pružností jako mantinel.
-  { key:'goalH',         def:90,   min:40,  max:200,  step:5,   label:'Výška branky',                group:'Hřiště a zápas' },
+  { key:'goalH',         def:120,   min:40,  max:200,  step:5,   label:'Výška branky',                group:'Hřiště a zápas' },
   { key:'targetGoals',   def:5,    min:1,   max:15,   step:1,   label:'Hraje se do N gólů',          group:'Hřiště a zápas' },
 
   // Rozhodování hráče s míčem a náběhy bez míče.
