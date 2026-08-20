@@ -91,7 +91,7 @@ export const TUNABLES = [
   // Při 0 je to přesně dosavadní pohled shora (z ze vzorce vypadne) — to je kontrola, proti
   // které se všechno ostatní měří. Výška hráče je čistě vykreslení, simulace ji nikde nečte;
   // při 0 jsou z hráčů zase ploché čtverce.
-  { key:'camTilt',       def:15,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
+  { key:'camTilt',       def:25,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
   { key:'playerH',       def:65,   min:0,   max:120,  step:5,   label:'Výška hráče',                 group:'Kamera' },
 
   // Rozměry branky a délka zápasu. Šířkou branky se škáluje i vápno.
