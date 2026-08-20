@@ -85,14 +85,14 @@ export const TUNABLES = [
 
   // Velikost joysticku a kde začíná nabíjení přihrávky.
   { key:'joyR',          def:70,   min:40,  max:100,  step:2,   label:'Velikost joysticku',          group:'Joystick' },
-  { key:'passThresh',    def:122,  min:100, max:180,  step:2,   label:'Práh přihrávky',              group:'Joystick' },
+  { key:'passThresh',    def:150,  min:100, max:180,  step:2,   label:'Práh přihrávky',              group:'Joystick' },
 
   // Kamera se naklápí: svět (x, y, z) se promítá jako sx = x, sy = y*cos(náklon) − z*sin(náklon).
   // Při 0 je to přesně dosavadní pohled shora (z ze vzorce vypadne) — to je kontrola, proti
   // které se všechno ostatní měří. Výška hráče je čistě vykreslení, simulace ji nikde nečte;
   // při 0 jsou z hráčů zase ploché čtverce.
-  { key:'camTilt',       def:30,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
-  { key:'playerH',       def:55,   min:0,   max:120,  step:5,   label:'Výška hráče',                 group:'Kamera' },
+  { key:'camTilt',       def:55,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
+  { key:'playerH',       def:85,   min:0,   max:120,  step:5,   label:'Výška hráče',                 group:'Kamera' },
 
   // Rozměry branky a délka zápasu. Šířkou branky se škáluje i vápno.
   { key:'goalW',         def:240,  min:100, max:500,  step:10,  label:'Šířka branky',                group:'Hřiště a zápas' },
