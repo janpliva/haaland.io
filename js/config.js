@@ -9,7 +9,7 @@ export const FIELD_W = 1200;
 // 2600 je z nich nejblíž všem třem (nejvíc o 3,1 jednotky, tj. 0,12 %, což je na 390px
 // displeji jeden css pixel). Kamera si teď hřiště o pevných rozměrech nafitne do viewportu
 // a co nesedí, olemuje — nikdy neroztáhne.
-export const FIELD_H = 2600;
+export const FIELD_H = 3200;
 export const PH = 15;                  // půlka strany hráče
 export const BALL_R = 10;
 export const CONTACT = PH + BALL_R;    // vzdálenost středů, kdy se hráč míče dotýká
@@ -91,7 +91,7 @@ export const TUNABLES = [
   // Při 0 je to přesně dosavadní pohled shora (z ze vzorce vypadne) — to je kontrola, proti
   // které se všechno ostatní měří. Výška hráče je čistě vykreslení, simulace ji nikde nečte;
   // při 0 jsou z hráčů zase ploché čtverce.
-  { key:'camTilt',       def:35,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
+  { key:'camTilt',       def:15,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
   { key:'playerH',       def:65,   min:0,   max:120,  step:5,   label:'Výška hráče',                 group:'Kamera' },
 
   // Rozměry branky a délka zápasu. Šířkou branky se škáluje i vápno.
