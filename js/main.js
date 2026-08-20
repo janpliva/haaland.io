@@ -340,7 +340,9 @@ function frame(now){
 
   if(S.running) step(dt);
   showClock();      // sám si hlídá, že do DOMu sáhne jen při změně textu
-  draw();
+  // dt jde i do kreslení: kamera se plynule dojíždí za míčem a musí to dělat v čase, ne po
+  // snímcích. Se simulací to nic společného nemá — draw() dál jenom čte.
+  draw(dt);
   requestAnimationFrame(frame);
 }
 

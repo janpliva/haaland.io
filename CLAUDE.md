@@ -57,22 +57,33 @@ that being true.
 
 ## The camera is a rendering thing, and only a rendering thing
 
-- The pitch is **1200 × 2600 fixed units** (`FIELD_W`, `FIELD_H` in `config.js`). It is not
-  derived from the viewport any more. Do not put it back — a viewport-derived pitch means every
-  device plays a different game, and with a tilted camera it would change again on its own.
+- The pitch is a **fixed `FIELD_W` × `FIELD_H`** (`config.js`). It is not derived from the
+  viewport any more. Do not put it back — a viewport-derived pitch means every device plays a
+  different game, and with a tilted camera it would change again on its own.
 - `js/render.js` owns the whole projection: `PX(x)`, `PY(y, z)` and `X(length)`. World (x, y, z)
   goes to the screen as `sx = x`, `sy = y·cos(camTilt) − z·sin(camTilt)`, then one scale that
-  fits the fixed pitch into the viewport and letterboxes the rest. **Nothing outside those three
-  functions may convert world units to pixels**, and nothing outside `render.js` may read the
-  camera at all.
-- **`camTilt` 0 is the control.** At zero the `z` term vanishes and the picture is the old
-  top-down one. If a change makes tilt 0 look different, the change is wrong.
+  fits the fixed pitch into the viewport, times `camZoom`, offset by where the camera is
+  looking. **Nothing outside those three functions may convert world units to pixels**, and
+  nothing outside `render.js` may read the camera. (`cam` is exported for measurement only —
+  read it in a harness, never in game code.)
+- **The camera moves along `y` and only `y`.** `ox` comes from the width and nothing else, so
+  it never pans sideways. Above `camZoom` 100 that means the left and right edges of the pitch
+  are cropped; that is the accepted price of zooming without a horizontal pan.
+- **The controls are `camTilt` 0 and `camZoom` 100 with `camFollow` 0.** At tilt 0 the `z` term
+  vanishes and the picture is the old top-down one; at zoom 100 with no follow the camera is the
+  old fixed whole-pitch fit, to the last pixel. If a change moves either control, the change is
+  wrong.
 - The simulation stays 2D + z. The camera must never appear in `state`, `util`, the AI, the
-  keeper or `main` — if a tilt value would change a digest, the projection has leaked.
+  keeper or `main` — if a tilt, a zoom or a follow setting would change a digest, the projection
+  has leaked. `draw(dt)` takes the frame time only to smooth the camera; it still writes nothing.
+- Repositioning the world (`reset()`) **cuts** the camera rather than gliding it, through
+  `hooks.camSnap()` — the same one-way-import trick as `hooks.pickChasers`.
 - **Input is deliberately not inverse-projected.** A thumb direction is a world direction, exactly
   as before. The aim line is drawn in world coordinates and projected, so it does not sit at the
-  thumb's on-screen angle (4.1° worst case at tilt 30). That gap is intended: the display tells
-  the truth about the simulation, the joystick stays predictable.
+  thumb's on-screen angle (2.8° worst case at the current tilt of 25, 4.1° at 30). That gap is
+  intended: the display tells the truth about the simulation, the joystick stays predictable.
+  The joystick and its rings are css px and stay css px at every zoom; the aim line is a world
+  length and grows with the zoom. Verified at the pixel level, not by reading the code.
 
 - **Imports must stay one-way**: config → state → store → util → ai/keeper → match → input →
   render/ui → menu → main. No cycles. If a cycle appears, move the shared piece down a layer.

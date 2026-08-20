@@ -26,8 +26,10 @@ the air is untouchable — it flies over everyone and bounces when it lands.
 
 The view is **lightly 3D**: the camera is tilted `camTilt` degrees off vertical instead of looking
 straight down, and players, the ball and the goals have height. It is still a top-down game — a
-tilt, not a camera behind the player, and the simulation is untouched by it. At `camTilt` 0 the
-picture is exactly the old flat one, which is what every change is checked against.
+tilt, not a camera behind the player, and the simulation is untouched by it. It also **zooms in
+and follows the ball along the pitch** (never sideways). At `camTilt` 0 the picture is exactly the
+old flat one, and at `camZoom` 100 with `camFollow` 0 it is exactly the old fixed whole-pitch
+framing; those two are what every change is checked against.
 
 There are goals at both ends — with **posts and a crossbar**, so a lob can go over — a keeper
 each, and a scoreline. A match runs in one of two
@@ -70,7 +72,7 @@ the pass direction. Keeping control on the passer also means your run *after* pa
 still yours, which is the point of a passing game.
 
 ### Charge outside the ring, pass on release
-Inner ring `joyR` (70 css px). Outer ring `joyR * passThresh/100` (122% → ~85.4 css px).
+Inner ring `joyR` (70 css px). Outer ring `joyR * passThresh/100` (150% → 105 css px).
 Movement speed ramps linearly with distance and saturates at `joyR`, so everything past the
 inner ring is full sprint and the joystick keeps steering normally while outside the outer
 ring too.
@@ -366,11 +368,12 @@ the digest are checked against it.
 
 - **One projection, three functions.** `PX(x)`, `PY(y, z)` and `X(length)` in `render.js` are the
   only places world units become pixels. Nothing outside `render.js` reads the camera.
-- **The pitch is fixed and the camera fits it.** 1200 × 2600 units, always. The scale is
+- **The pitch is fixed and the camera fits it.** `FIELD_W` × `FIELD_H`, always. The base scale is
   `min(cssW/FIELD_W, cssH/envelope)` where the envelope is `FIELD_H·cos + goalH·sin` — the far
   goal's crossbar is included so it cannot be cropped at small tilts. The smaller ratio wins, so
   a viewport of the wrong aspect gets **letterboxed, never stretched**; the bands it leaves above
-  and below the pitch are where the stands sit.
+  and below the pitch are where the stands sit. `camZoom` multiplies that base scale and the
+  camera then follows the ball along `y` — see "The camera zooms and follows" below.
 - **Depth sorting by world y.** Everything on the pitch — players, both goal frames, the ball —
   is drawn from the smallest y (farthest) to the largest (nearest), so a nearer body covers a
   farther one. The key is the *world* y, never the screen y: height must not let a tall object
@@ -393,13 +396,55 @@ the digest are checked against it.
 - **Input is not inverse-projected.** A drag direction is the same world direction it always was.
   The aim line, on the other hand, is drawn in world coordinates and projected like everything
   else, so it shows the ball's true path and therefore **does not** sit at the thumb's on-screen
-  angle. Worst case at tilt 30 is **4.12°** (at a thumb direction 47° off the vertical axis; 0 for
-  a pure up/down or left/right drag). 15° → 0.99°, 45° → 9.88°, 55° → 15.72°.
+  angle. Worst case at the current tilt of 25 is **2.82°**, at tilt 30 **4.12°** (at a thumb
+  direction ~47° off the vertical axis; 0 for a pure up/down or left/right drag). 15° → 0.99°,
+  45° → 9.88°, 55° → 15.72°. Zoom does not change it — a scale cannot rotate anything.
 - **The aerial aim arc now bows in `z`** — the honest shape — whenever the camera can show height.
   At `camTilt` 0 it cannot (the bow would project onto the aim direction itself), so there the
   original sideways glyph is kept. Same rule for the little "aerial armed" arch over the carrier's
   head. Note the honest arc still flattens for a lob aimed straight up the pitch at *any* tilt,
   because `z` only ever moves a point vertically on screen: that direction is the degenerate one.
+
+### The camera zooms and follows the ball — along the pitch only
+Four sliders, all rendering-only. `camZoom` 100 with `camFollow` 0 is the fixed whole-pitch view
+the tilt shipped with, to the pixel; that is the control the rest is measured against.
+
+- **It moves along `y` and only `y`.** `ox` is computed from the width and nothing else, so the
+  camera is permanently centred across the pitch. Above `camZoom` 100 the pitch is wider than the
+  viewport and the touchlines are cropped — at 140 you see 71 % of the width, at 195 half of it.
+  That is the price of zooming without a horizontal pan, and it is the reason the zoom cannot
+  simply be pushed up.
+- **The camera state is one number**: `cam.p`, the projected `y` that sits at the vertical centre
+  of the screen. `PY` is then "how far is this point from the middle of the view". The fixed view
+  is `camHome() = (FIELD_H·cos − goalH·sin)/2`, which is the old `oy` expression rearranged —
+  that is *why* zoom 100 with no follow reproduces it exactly.
+- **The target is the ball's ground position, plus anticipation.** `z` is deliberately ignored, or
+  the camera would bob with every lofted ball. The look-ahead is `ball.vy · camLookAhead% · 1 s`,
+  so at 25 % the camera aims at where the ball will be in a quarter of a second. `camFollow` then
+  blends between `camHome()` and that target, so 0 is the fixed camera and 100 is full following.
+- **Smoothing is a first-order lag, integrated exactly**:
+  `p += (target − p)·(1 − e^(−dt/τ))` with `τ = camSmooth`. It is the closed-form solution of
+  `ṗ = (target − p)/τ` over the frame, so it is frame-rate independent — a plain
+  `p += (target − p)·0.1` per frame would move at a different speed on a 120 Hz screen. Its
+  velocity is always proportional to the remaining error and dies with it, so it **cannot
+  overshoot**: measured 0 overshoot frames. A second-order critically damped spring (SmoothDamp)
+  would be smoother in the derivative but carries momentum and *can* pass a decelerating target,
+  which is exactly what was ruled out.
+- **The ends are hard stops.** The view may reach `EDGE_PAD` (140 units) past either goal line,
+  plus the far goal's frame height (`goalH·sin`) at the top — so the goal line and a slice of
+  stand are always in shot and the camera never slides into empty background. When the whole
+  pitch already fits (any zoom low enough that the window is bigger than pitch + pads), the two
+  limits cross and the camera is simply pinned at `camHome()` — which is what makes zoom 100
+  identical to the old fixed view rather than merely close to it.
+- **A reset cuts, it does not glide.** `reset()` calls `hooks.camSnap()`, which clears
+  `cam.ready`, so the next frame places the camera on its target instead of easing toward it.
+  Kickoff, a goal restart, "Reset pozic" and a squad rebuild all go through `reset()`. Gliding was
+  rejected because the ball *teleports* at a kickoff — an eased camera would spend half a second
+  lying about where play is — and because at `camSmooth` 1500 it could not finish inside the
+  1.4 s goal pause anyway.
+- **Nothing in the simulation reads any of it.** `draw(dt)` takes the frame time only to advance
+  the smoothing, and `hooks.camSnap` writes render-local state. Verified: six seeded matches are
+  bit-identical to the pre-camera build at zoom 100/follow 0 *and* at the defaults.
 
 ### Goals, scoring, match
 Both goals are centred on `FIELD_W/2`, mouth `goalW` wide and `goalH` **tall**. You attack the top
@@ -923,9 +968,9 @@ one safe one. (This rationale is inferred from the code — the lane penalty
 ## 4. Architecture
 
 `index.html` (97) is a DOM shell, `styles.css` (281) the CSS, and the JS lives in `js/`:
-`config` (258), `state` (247), `store` (115), `util` (685), `ai-off` (121), `ai-def` (134),
-`ai-ball` (116), `keeper` (181), `match` (88), `input` (67), `render` (484), `ui` (63),
-`menu` (304), `main` (358).
+`config` (271), `state` (251), `store` (115), `util` (685), `ai-off` (121), `ai-def` (134),
+`ai-ball` (116), `keeper` (181), `match` (88), `input` (67), `render` (542), `ui` (63),
+`menu` (304), `main` (360).
 
 Imports run one way only: config → state → store → util → ai/keeper → match → input →
 render/ui → menu → main. Because module bindings are read-only, every value that is
@@ -935,8 +980,8 @@ mutated.
 
 Three places bend the file layout to keep imports acyclic. `dist`/`clampField` sit in
 `state.js` rather than `util.js` because `reset()` needs them; `state.js` exposes a `hooks`
-object that `util.js` fills with `pickChasers` and `store.js` with `applyRatings`, because
-`reset()` and `buildTeams()` have to call them from the layer below; and `kickPlan` moved to
+object that `util.js` fills with `pickChasers`, `store.js` with `applyRatings` and `render.js`
+with `camSnap`, because `reset()` and `buildTeams()` have to call them from the layer below; and `kickPlan` moved to
 `util.js` so `keeper.js` and `ai-ball.js` can both use it without importing each other.
 
 `menu.js` imports `match.js` (for `newMatch`), so `match.js` must not import `menu.js`. Full
@@ -980,10 +1025,11 @@ buildPanel / clearStore        gear panel                       ui.js
 ```
 
 ### Coordinate system
-The pitch is **fixed at 1200 × 2600 logical units** — `FIELD_W` and `FIELD_H`, both constants in
-`config.js`. It used to be `FIELD_H = cssH / scale`, i.e. a different pitch length on every
-device; 2600 is the round number closest to what that formula produced on phones (375×812 →
-2598.4, 390×844 → 2596.9, 430×932 → 2600.9), so the change is at most 3.1 units, 0.12 %.
+The pitch is **fixed** at `FIELD_W` × `FIELD_H` logical units, both constants in `config.js`
+(1600 × 3200 as this is written). It used to be `FIELD_H = cssH / scale`, i.e. a different pitch
+length on every device; the first fixed value, 1200 × 2600, was chosen as the round number
+closest to what that formula produced on phones (375×812 → 2598.4, 390×844 → 2596.9, 430×932 →
+2600.9). The current size is a hand-set choice on top of that, for more players.
 
 The camera (`render.js`) turns world coordinates into css px and nothing else does:
 
@@ -991,14 +1037,22 @@ The camera (`render.js`) turns world coordinates into css px and nothing else do
 X(v)      = v · k                                 length → css px
 PX(x)     = ox + x · k
 PY(y, z)  = oy + (y·cos(camTilt) − z·sin(camTilt)) · k
-k         = min(cssW/FIELD_W, cssH/(FIELD_H·cos + goalH·sin))     fit, never stretch
+
+kFit      = min(cssW/FIELD_W, cssH/(FIELD_H·cos + goalH·sin))     fit, never stretch
+k         = kFit · camZoom/100
+ox        = (cssW − FIELD_W·k)/2                  always centred: no horizontal pan, ever
+oy        = cssH/2 − p·k                          p = the projected y at the screen centre
 ```
 
-`ox`/`oy` centre that envelope, so a viewport of the wrong aspect is letterboxed. On 375×812:
-at tilt 0, `k` = 0.31231 (against 0.3125 before — 0.06 % smaller, 0.2 px of side band); at tilt
-30, `k` = 0.3125, the width binds exactly as it always did, and the pitch takes 718 of the 812
-css px, leaving ~47 px of stand above and below. The joystick and the HUD are drawn in css px
-directly and the camera does not touch them. Device pixel ratio is capped at 2.5.
+`p` is the whole of the camera's freedom: it eases toward the ball's projected `y` (plus
+look-ahead, scaled by `camFollow`) and is clamped so the view never passes a goal line by more
+than `EDGE_PAD`. At `camZoom` 100 with `camFollow` 0 the clamp degenerates and `p = camHome()`,
+which reduces `oy` to the old fixed expression exactly.
+
+On 375×812 at the current defaults (tilt 25, zoom 140): `k` = 0.328125 against 0.234375 at zoom
+100, a player is 9.8 css px wide against 7.0, and 85.3 % of the pitch length and 71.4 % of its
+width are on screen. The joystick, its rings and the HUD are drawn in css px directly and no
+camera value touches them. Device pixel ratio is capped at 2.5.
 
 ### Entities
 `mk(team, role, num)` → `{ x, y, fx, fy, team, tx, ty, think, seed, sf, role, num, plan, side,
@@ -1091,8 +1145,10 @@ match is restarted from the menu, never by tapping the pitch.
 11. Control switch, then the aim line for drawing.
 
 ### Rendering
-Immediate mode, redrawn every frame. The camera is recomputed at the top of `draw()`, not in
-`resize()` — `camTilt` and `goalH` are sliders and may move at any time.
+Immediate mode, redrawn every frame. The camera is recomputed at the top of `draw(dt)`, not in
+`resize()` — every value it reads (`camTilt`, `goalH`, the four `cam*` sliders, the ball) can move
+at any time. `dt` reaches `draw` for exactly one reason: the camera's smoothing is integrated in
+time, not per frame. Everything else in the renderer still only reads.
 
 Painter's order: surround fill → **stands** (far, left, right, near) → pitch fill → stripes →
 boundary / halfway / centre circle → goal areas and boxes → goal lines and the post marks on the
@@ -1168,12 +1224,12 @@ these values. They are hand-tuned by playing — do not change one without being
 
 | Key | Default | Range (step) | Unit | Effect |
 |---|---|---|---|---|
-| `teamSize` | 5 | 1–6 (1) | count | Blue outfielders. Rebuilds teams and starts a new match. **Rebuilding discards stored ratings** if the shape changes — see §6. |
-| `foeSize` | 5 | 1–6 (1) | count | Red outfielders. Same. |
+| `teamSize` | 6 | 1–6 (1) | count | Blue outfielders. Rebuilds teams and starts a new match. **Rebuilding discards stored ratings** if the shape changes — see §6. |
+| `foeSize` | 6 | 1–6 (1) | count | Red outfielders. Same. |
 | `speedBase` | 200 | 120–320 (5) | units/s | Top speed, **every player, both teams**. Per-player and per-team differences come from the `speed` rating, not from a second constant. Replaced `playerSpeed`/`mateSpeed`/`foeSpeed`. Markers still use 0.84×, surplus defenders 0.85×. |
 | `pickupBase` | 40 | 16–90 (1) | units | **Claim** radius, both teams. A loose ball whose path crosses it makes that player the receiver; it does not stop or slow the ball. Replaced `pickupMate`/`foePickup`. |
 | `tackleR` | 3 | 0–60 (1) | units | Extra steal reach beyond the body. An opponent within `PH + tackleR` of the **ball** takes it. Not the ball's physical radius — that is `BALL_R`. |
-| `touchPush` | 100 | 0–600 (10) | units/s | Extra speed given to the ball at contact, scaled by stick magnitude. Sets the whole dribble rhythm: peak gap `(touchPush*m)²/(2*friction)`, cycle `2*touchPush*m/friction`. The formula holds while `touchPush <= speedOf`. |
+| `touchPush` | 150 | 0–600 (10) | units/s | Extra speed given to the ball at contact, scaled by stick magnitude. Sets the whole dribble rhythm: peak gap `(touchPush*m)²/(2*friction)`, cycle `2*touchPush*m/friction`. The formula holds while `touchPush <= speedOf`. |
 | `chaseSteer` | 0 | 0–100 (5) | % | How much stick is blended into the carrier's automatic run at the ball. 0 = pure chase and full commitment between contacts, 100 = continuous steering. |
 | `lungeSpeed` | 50 | 10–500 (10) | % of normal | **Cap** on the reception lunge. The actual speed is what the interception requires; this only limits it. Note it is a percentage, so below 100 the lunge is slower than normal running. |
 | `friction` | 400 | 80–700 (10) | units/s² | Linear deceleration of the ball **on the ground**. Also halves the dribble cycle length if doubled. |
@@ -1191,9 +1247,13 @@ these values. They are hand-tuned by playing — do not change one without being
 | `passQueueMax` | 1700 | 200–2000 (50) | ms | How long an armed pass waits for a contact before being dropped, counted **from possession**, not from release. With the automatic chase a contact always arrives well inside this, so it effectively never expires. |
 | `passLead` | 150 | 0–300 (5) | units | How far ahead of a moving teammate an AI pass is aimed, scaled by his `sf`. |
 | `joyR` | 70 | 40–100 (2) | css px | Inner ring radius. Also the distance at which you hit full speed. |
-| `passThresh` | 122 | 100–180 (2) | % of `joyR` | Outer ring radius — the charge boundary. ~85.4 css px at the default. |
-| `camTilt` | 30 | 0–55 (1) | degrees | Camera tilt off vertical. `sy = y·cos − z·sin`. **0 = the old top-down view**, and the control every check is run against. Rendering only — no simulation value reads it. |
-| `playerH` | 55 | 0–120 (5) | units | How tall a player's box is drawn. Rendering only; 0 gives flat squares again. 55 against a 240-unit goal is roughly human proportions, but the value is a look decision, hence a slider. |
+| `passThresh` | 150 | 100–180 (2) | % of `joyR` | Outer ring radius — the charge boundary. 105 css px at the default. |
+| `camTilt` | 25 | 0–55 (1) | degrees | Camera tilt off vertical. `sy = y·cos − z·sin`. **0 = the old top-down view**, and the control every check is run against. Rendering only — no simulation value reads it. |
+| `playerH` | 65 | 0–120 (5) | units | How tall a player's box is drawn. Rendering only; 0 gives flat squares again. Roughly human proportions against a 240-unit goal, but the value is a look decision, hence a slider. |
+| `camZoom` | 140 | 100–220 (5) | % | Multiplies the fit scale. **100 with `camFollow` 0 is the old fixed whole-pitch view**, the control. Above 100 the pitch is wider than the screen and the touchlines are cropped, because the camera never pans sideways. At 375×812 the 60 %-of-the-pitch-visible rule caps it at 199 %, i.e. the 195 notch. |
+| `camFollow` | 100 | 0–100 (5) | % | How much of the way from the fixed centre to the ball the camera goes. 0 = fixed camera. |
+| `camSmooth` | 350 | 50–1500 (25) | ms | Time constant of the first-order lag, integrated exactly per frame, so it is frame-rate independent. 63 % of the remaining error is covered in one `camSmooth`. Cannot overshoot. |
+| `camLookAhead` | 25 | 0–100 (5) | % of 1 s | Anticipation: the target is shifted by `ball.vy · camLookAhead% · 1 s`, so 25 aims a quarter of a second ahead of the ball. |
 | `goalW` | 240 | 100–500 (10) | units | Goal mouth width, centred on `FIELD_W/2` at both ends. Also scales the boxes. |
 | `goalH` | 90 | 40–200 (5) | units | Crossbar height. **A goal counts only below it**; higher is a bounce off the frame. This one *does* change play — at 90 a full-power lob is under the bar only within 153 units of the kick or beyond 468. |
 | `targetGoals` | 5 | 1–15 (1) | count | First to this many goals wins. |
@@ -1236,8 +1296,10 @@ a new entry can go anywhere and nothing shifts.
 
 | Constant | Value | Where |
 |---|---|---|
-| `FIELD_W` | 1200 units | `config.js` |
-| `FIELD_H` | **2600 units, fixed.** Was `cssH / scale`, so the pitch was a different length on every device; 2600 is the round value closest to what phones produced (2598.4 / 2596.9 / 2600.9). The camera fits it and letterboxes the rest | `config.js` |
+| `FIELD_W` | **1600 units, fixed** (was 1200) | `config.js` |
+| `FIELD_H` | **3200 units, fixed** (was `cssH / scale`, so the pitch was a different length on every device; then 2600, the round value closest to what phones produced — 2598.4 / 2596.9 / 2600.9 — and now hand-set larger). The camera fits it, zooms it and letterboxes the rest | `config.js` |
+| `EDGE_PAD` | 140 units — how far past a goal line the camera may look before it stops. Plus `goalH·sin` at the far end, so the whole goal frame is always in shot. Scenery framing, not a game value, so not a tunable | `render.js` |
+| `LOOK_T` | 1 s — the horizon `camLookAhead` is a percentage of. At 25 % the camera aims a quarter of a second ahead of the ball | `render.js` |
 | `STAND` | `gap 40, depth 560, h 250, rows 4` units — the four stands. Scenery, no gameplay effect, so deliberately not tunables. `depth·cos > h·sin` at every allowed tilt, which is what keeps the near stand from folding over the pitch | `render.js` |
 | Player half-size `PH` | 15 (30×30 square) | `config.js` |
 | `BALL_R` | 10 | `config.js` |
@@ -1367,6 +1429,27 @@ Known rough edges (behaviour, not necessarily bugs):
   away. The one exception is the carrier, who never hides his own ball.
 - **The side stands are invisible in portrait.** The camera fits the pitch and on a phone the
   width binds, so there is no horizontal band for them to sit in. They show in landscape.
+- **Zooming crops the touchlines.** The camera never pans sideways, so above `camZoom` 100 the
+  width simply does not fit: 71.4 % of it at the default 140, 51.3 % at 195. A winger hugging
+  the far touchline can be off screen while you are on the ball. This is the cost the brief
+  accepted when it ruled out horizontal panning.
+- **At the default zoom the camera barely moves.** 85 % of the pitch length already fits, so the
+  centre of view only travels 792 units (24.8 % of the pitch) between its two end stops; the rest
+  of the time it is pinned. Following becomes a real movement above roughly `camZoom` 110 and is
+  worth ~1500 units of travel at 195.
+- **The joystick still covers most of my penalty box.** Measured with the ball in the box: the
+  threshold ring covered 100 % of the box before, 86.2 % at the default zoom, and still 51.7 % at
+  the maximum zoom the 60 % rule allows. Zooming helps but does not solve it — the fix would be a
+  camera bias or a different joystick, and neither was in scope.
+- **The look-ahead reads `ball.vy`, which is a sawtooth while dribbling** — every touch re-kicks
+  the ball, so the anticipation term pulses once per touch cycle instead of holding steady. What
+  reaches the screen is smoothed by `camSmooth` and sits inside the measured p99 lag (16 css px
+  at the default zoom), so it is small, but it is there. Using the *carrier's* velocity instead
+  would be steadier and is a one-line change; "the ball's y velocity" is what the brief asked
+  for.
+- **`camZoom` above 195 breaks the "60 % of the pitch visible" rule** on a 375×812 screen (199 %
+  is the exact limit). The slider still goes to 220 — it is not clamped, deliberately, so the
+  limit is a documented number rather than a silent wall.
 - **At `camTilt` 0 the goal frame collapses onto the goal line** — posts and bar have zero
   projected height — so the goal reads exactly as the coloured line it was before. That is why
   the frame is drawn in each goal's own colour rather than white.

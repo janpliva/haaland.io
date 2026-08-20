@@ -63,7 +63,10 @@ export const E = { blue: [], red: [], all: [], gkB: null, gkR: null };
 // import jednosměrný, util si sem funkci zapíše při svém načtení. Stejně tak store.js
 // zapisuje applyRatings — buildTeams ji volá na konci, takže uložená hodnocení naskočí
 // i po přestavení týmů z panelu a nesedící tvar se zahodí právě tam.
-export const hooks = { pickChasers: function(){}, applyRatings: function(){} };
+// camSnap je totéž o patro výš: reset() rozestaví hřiště a míč se teleportuje, takže kamera
+// v render.js se musí přestat přejíždět a rovnou střihnout. Výchozí prázdná funkce znamená,
+// že bez načteného rendereru se nic nestane.
+export const hooks = { pickChasers: function(){}, applyRatings: function(){}, camSnap: function(){} };
 
 // ---- krátká paměť: jak kdo běžel ----
 // Obránce vidí SOUPEŘE se zpožděním defReact — každého, ne jen držitele míče. Vlastní tým,
@@ -244,4 +247,5 @@ export function reset(kickTeam){
   touch.lift = false;
   S.airMode = false; S.airBy = null;   // vzdušný režim platí na jedno držení míče
   hooks.pickChasers();
+  hooks.camSnap();            // rozestavení = střih, ne přejezd (viz render.js)
 }
