@@ -54,10 +54,10 @@ export const TUNABLES = [
   // zpracovat, dokud nedosedne. Při dopadu se odrazí (svisle bounceKeep, vodorovně bounceDrag)
   // a každý další odraz je nižší a kratší, dokud svislá rychlost nespadne pod BOUNCE_STOP.
   // Výjimka je brankář: ten chytá i míč nad zemí, protože přesně to brankář dělá.
-  { key:'gravity',       def:1400, min:400, max:3000, step:50,  label:'Gravitace',                   group:'Míč vzduchem' },
+  { key:'gravity',       def:1000, min:400, max:3000, step:50,  label:'Gravitace',                   group:'Míč vzduchem' },
   { key:'bounceKeep',    def:45,   min:0,   max:80,   step:5,   label:'Odraz od země (%)',           group:'Míč vzduchem' },
-  { key:'bounceDrag',    def:80,   min:40,  max:100,  step:5,   label:'Brzdění při dopadu (%)',      group:'Míč vzduchem' },
-  { key:'airDrag',       def:40,   min:0,   max:300,  step:10,  label:'Odpor vzduchu',               group:'Míč vzduchem' },
+  { key:'bounceDrag',    def:50,   min:40,  max:100,  step:5,   label:'Brzdění při dopadu (%)',      group:'Míč vzduchem' },
+  { key:'airDrag',       def:0,   min:0,   max:300,  step:10,  label:'Odpor vzduchu',               group:'Míč vzduchem' },
   { key:'liftAngle',     def:38,   min:15,  max:60,   step:1,   label:'Úhel vzletu (°)',             group:'Míč vzduchem' },
   // Padající míč se hůř zpracuje než kutálející se: první dotek je delší, a to úměrně tomu,
   // jak rychle míč padal. Tohle je podíl svislé rychlosti dopadu, který se přičte k předkopu —
