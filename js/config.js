@@ -4,10 +4,10 @@
 export const FIELD_W = 1600;
 // Délka hřiště je PEVNÁ. Dřív se dopočítávala z viewportu (FIELD_H = cssH / scale), takže
 // každý displej hrál na jinak dlouhém hřišti — a s nakloněnou kamerou by se svislá osa
-// stlačila a délka hřiště by se tím tiše změnila znovu. Hodnota vychází z toho, co dosavadní
-// vzorec dával na telefonech: 375×812 → 2598,4; 390×844 → 2596,9; 430×932 → 2600,9.
-// 2600 je z nich nejblíž všem třem (nejvíc o 3,1 jednotky, tj. 0,12 %, což je na 390px
-// displeji jeden css pixel). Kamera si teď hřiště o pevných rozměrech nafitne do viewportu
+// stlačila a délka hřiště by se tím tiše změnila znovu. První pevná hodnota (1200×2600)
+// vyšla z toho, co ten vzorec dával na telefonech: 375×812 → 2598,4; 390×844 → 2596,9;
+// 430×932 → 2600,9. Dnešní 1600×3200 je ruční volba nad rámec toho — větší hřiště pro víc
+// hráčů. Kamera si hřiště o pevných rozměrech nafitne do viewportu, přiblíží podle camZoom
 // a co nesedí, olemuje — nikdy neroztáhne.
 export const FIELD_H = 3200;
 export const PH = 15;                  // půlka strany hráče
@@ -93,6 +93,19 @@ export const TUNABLES = [
   // při 0 jsou z hráčů zase ploché čtverce.
   { key:'camTilt',       def:25,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
   { key:'playerH',       def:65,   min:0,   max:120,  step:5,   label:'Výška hráče',                 group:'Kamera' },
+  // Kamera se přibližuje a jede za míčem, ale JEN po délce hřiště — do stran se nepanuje nikdy.
+  // camZoom 100 + camFollow 0 je přesně ten pevný pohled na celé hřiště, co tu byl dřív, a je
+  // to kontrola, proti které se všechno měří. Nad 100 se ořízne šířka (kamera stojí na středu),
+  // takže přiblížení se platí krajními pruhy hřiště — čísla jsou v PR.
+  // POZOR na strop: aby bylo vidět aspoň 60 % délky hřiště, smí camZoom na 375×812 nejvýš 199.
+  { key:'camZoom',       def:140,  min:100, max:220,  step:5,   label:'Přiblížení kamery (%)',       group:'Kamera' },
+  { key:'camFollow',     def:100,  min:0,   max:100,  step:5,   label:'Sledování míče (%)',          group:'Kamera' },
+  // Časová konstanta dojezdu, ne rychlost: kamera ujede za camSmooth ms 63 % zbývající
+  // odchylky, ať běží hra na jakémkoliv snímkování.
+  { key:'camSmooth',     def:350,  min:50,  max:1500, step:25,  label:'Plynulost kamery (ms)',       group:'Kamera' },
+  // Předvídání: kolik procent VTEŘINY pohybu míče se přičte k cíli. 25 % = kamera míří tam,
+  // kde míč bude za čtvrt vteřiny.
+  { key:'camLookAhead',  def:25,   min:0,   max:100,  step:5,   label:'Předvídání pohybu (%)',       group:'Kamera' },
 
   // Rozměry branky a délka zápasu. Šířkou branky se škáluje i vápno.
   { key:'goalW',         def:240,  min:100, max:500,  step:10,  label:'Šířka branky',                group:'Hřiště a zápas' },

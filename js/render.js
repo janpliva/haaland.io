@@ -1,6 +1,6 @@
 // Vykreslení. Čte stav, nic nemění.
 import { T, FIELD_W, FIELD_H, PH, BALL_R, GOAL_DEPTH } from './config.js';
-import { S, E, ball, ctx, joyBase, touch } from './state.js';
+import { S, E, ball, ctx, joyBase, touch, hooks } from './state.js';
 import { pickupOf, boxW, boxD, rollDist, airApex } from './util.js';
 
 // ---- kamera ----
@@ -14,20 +14,78 @@ import { pickupOf, boxW, boxD, rollDist, airApex } from './util.js';
 // Při camTilt 0 je cos 1 a sin 0, takže z ze vzorce vypadne a zbude přesně ten průmět, co tu
 // byl dřív. To je KONTROLA: co při nule vypadá jinak než dřív, je chyba.
 //
-// Hřiště má pevné rozměry (config.js), takže kamera řeší jen jedno: nafitnout je do viewportu.
-// Bere se menší z obou poměrů, takže se obraz nikdy neroztáhne — co nesedí, zbude jako pruh
-// nad a pod hřištěm (nebo po stranách) a do něj se kreslí tribuna.
-const cam = { cos:1, sin:0, k:1, ox:0, oy:0 };
-function camUpdate(){
+// Hřiště má pevné rozměry (config.js), takže základní měřítko je jen „nafitnout je do
+// viewportu": menší z obou poměrů, takže se obraz nikdy neroztáhne — co nesedí, zbude jako
+// pruh nad a pod hřištěm (nebo po stranách) a do něj se kreslí tribuna. Přiblížení (camZoom)
+// tenhle fit násobí a sledování míče posouvá střed pohledu po DÉLCE hřiště.
+//
+// KAMERA SE HÝBE JEN PO OSE Y. Vodorovně zůstává napořád na středu hřiště: ox se počítá ze
+// šířky a z ničeho jiného. Nad camZoom 100 se proto do obrazu nevejde celá šířka a kraje se
+// oříznou — je to daň za přiblížení bez vodorovného panování a je vidět v měřeních v PR.
+//
+// Stav kamery je `p`: promítnutá souřadnice, která leží ve SVISLÉM STŘEDU obrazovky.
+// PY pak není nic jiného než „o kolik je tenhle bod od středu pohledu".
+const LOOK_T = 1.0;        // camLookAhead 100 % = o vteřinu pohybu míče dopředu
+const EDGE_PAD = 140;      // kolik světa za brankovou čárou smí kamera ještě ukázat (ochoz + kus tribuny)
+// Vystaveno jen KE ČTENÍ (měření a kontrola v PR). Nikdo mimo render.js do kamery nesahá
+// a nikdo se jí na nic neptá — simulace o ní neví.
+export const cam = { cos:1, sin:0, k:1, ox:0, oy:0, p:0, tp:0, clamped:false, ready:false };
+
+// Kam by se kamera dívala, kdyby nesledovala nic: přesně ten pevný pohled na celé hřiště,
+// co tu byl dřív. Odvozeno z původního výrazu pro oy, takže camZoom 100 + camFollow 0 dá
+// tentýž obraz — to je kontrola.
+function camHome(){ return (FIELD_H*cam.cos - T.goalH*cam.sin)/2; }
+
+function camUpdate(dt){
   var a = T.camTilt*Math.PI/180;
   cam.cos = Math.cos(a); cam.sin = Math.sin(a);
   // Do obálky patří i horní branka: břevno trčí nad brankovou čáru o goalH*sin, a kdyby se
   // fitovalo jen hřiště, při malém náklonu by z obrazu vylezlo.
   var h = FIELD_H*cam.cos + T.goalH*cam.sin;
-  cam.k = Math.min(S.cssW/FIELD_W, S.cssH/Math.max(1, h));
+  cam.k = Math.min(S.cssW/FIELD_W, S.cssH/Math.max(1, h)) * (T.camZoom/100);
   cam.ox = (S.cssW - FIELD_W*cam.k)/2;
-  cam.oy = (S.cssH - h*cam.k)/2 + T.goalH*cam.sin*cam.k;
+
+  // --- kam se dívat ---
+  // Cíl je POZEMNÍ poloha míče: z se schválně ignoruje, jinak by kamera při každém lobu
+  // poskočila za letícím míčem. K tomu předvídání: kus rychlosti míče po ose y, takže se
+  // kamera vydá tam, kam hra teprve míří, místo aby ji dobíhala.
+  var home = camHome();
+  var lead = ball.vy * (T.camLookAhead/100) * LOOK_T;
+  var want = home + ((ball.y + lead)*cam.cos - home) * (T.camFollow/100);
+  if(S.screen !== 'game') want = home;          // v menu se nesleduje nic
+
+  // --- doraz na koncích hřiště ---
+  // Kamera nesmí vyjet za brankovou čáru do prázdna. Horní mez počítá i s rámem branky
+  // (břevno trčí nad čáru o goalH*sin), takže na kraji je vždycky vidět celá branka a za ní
+  // kus ochozu a tribuny. Ta nesymetrie je zároveň to, co drží degenerovaný případ přesně na
+  // původním pohledu: když je okno větší než hřiště i s dorazy, střed vyjde na camHome().
+  var half = (S.cssH/2)/cam.k;
+  var lo = half - (T.goalH*cam.sin + EDGE_PAD*cam.cos);
+  var hi = FIELD_H*cam.cos + EDGE_PAD*cam.cos - half;
+  var free = want;
+  if(lo > hi) want = home;                      // celé hřiště se vejde → pevná kamera jako dřív
+  else want = Math.max(lo, Math.min(hi, want));
+  cam.clamped = (want !== free);                // sedí na dorazu — jen na čtení, na měření
+
+  // --- plynulost ---
+  // Exponenciální dojezd, ale ne „lerp o pevný podíl za snímek": to by při kolísavém dt jelo
+  // pokaždé jinak rychle. Tohle je PŘESNÉ řešení p' = (cíl − p)/tau za čas dt, takže výsledek
+  // na délce snímku nezávisí. Rychlost je vždycky úměrná zbývající odchylce a s ní jde k nule,
+  // takže se cíl nedá přejet ani jednou — přeběh je nula z konstrukce, ne z ladění.
+  // Pružina druhého řádu (SmoothDamp) by byla hladší v derivaci, ale ta si nese setrvačnost a
+  // brzdící cíl umí přejet; zadání říká, že přeběh musí být nula, tak vyhrává tenhle.
+  cam.tp = want;
+  if(!cam.ready){ cam.p = want; cam.ready = true; }        // výkop: bez rozjezdu, rovnou tam
+  else if(dt > 0) cam.p += (want - cam.p) * (1 - Math.exp(-dt/(Math.max(1, T.camSmooth)/1000)));
+
+  cam.oy = S.cssH/2 - cam.p*cam.k;
 }
+// Rozestavení (výkop, gól, nový zápas, reset z panelu) kameru NEPŘEJÍŽDÍ, ale střihne: míč se
+// teleportoval na střed, takže plynulý přejezd by byl jen zpožděná lež o tom, kde se hraje —
+// a při camSmooth 1500 by se navíc nestihl doklouzat, než se rozehraje. Volá se to hákem ze
+// state.reset(), stejně jako pickChasers, aby importy zůstaly jednosměrné.
+export function camSnap(){ cam.ready = false; }
+hooks.camSnap = camSnap;
 // Délka (poloměr, šířka) → css px. Bod → PX/PY. JINUDY se do obrazovky nepřevádí nic:
 // veškerá projekce je v těchhle třech funkcích, ne rozsypaná po souboru.
 export function X(v){ return v*cam.k; }
@@ -324,8 +382,8 @@ function drawBall(){
   }
 }
 
-export function draw(){
-  camUpdate();
+export function draw(dt){
+  camUpdate(dt || 0);
   ctx.clearRect(0,0,S.cssW,S.cssH);
 
   // okolí stadionu; tráva se pak kreslí jen na hřiště
