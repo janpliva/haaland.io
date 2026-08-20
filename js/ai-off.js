@@ -1,5 +1,5 @@
 // Tým s míčem: role v pruzích, náběhy do volného prostoru a před branku.
-import { T, FIELD_W, dirOf } from './config.js';
+import { T, FIELD_W, FIELD_H, dirOf } from './config.js';
 import { S, ball } from './state.js';
 import { foesOf, matesOf, attackY, speedOf, boxW, boxD, moveTo,
          chaserOf, interceptPoint } from './util.js';
@@ -54,8 +54,8 @@ export function mateTarget(mate, carrier){
     if(dir < 0) yMin = Math.min(yMin, behindY);
     else        yMax = Math.max(yMax, behindY);
   }
-  yMin = Math.max(45, yMin); yMax = Math.min(S.FIELD_H-45, yMax);
-  if(yMax - yMin < 70){ yMin = Math.max(45, Math.min(yMin, S.FIELD_H-175)); yMax = yMin + 130; }
+  yMin = Math.max(45, yMin); yMax = Math.min(FIELD_H-45, yMax);
+  if(yMax - yMin < 70){ yMin = Math.max(45, Math.min(yMin, FIELD_H-175)); yMax = yMin + 130; }
 
   var best = null, bestScore = -1e9;
   for(var gx=0; gx<=4; gx++){

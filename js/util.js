@@ -1,5 +1,5 @@
 // Geometrie, „kdo je kdo" a náběh na míč. Vrstva nad state, pod AI.
-import { T, FIELD_W, PH, CONTACT, BOUNCE_STOP, dirOf, stat } from './config.js';
+import { T, FIELD_W, FIELD_H, PH, CONTACT, BOUNCE_STOP, dirOf, stat } from './config.js';
 import { S, E, ball, dist, clampField, hooks, histAt, locked } from './state.js';
 
 export { dist, clampField };          // ať je zbytek kódu bere z jednoho místa
@@ -8,7 +8,7 @@ export { stat };                      // škálovaná konstanta se čte JEN pře
 // ---- kdo je kdo ----
 export function foesOf(p){ return p.team === 'b' ? E.red : E.blue; }
 export function matesOf(p){ return p.team === 'b' ? E.blue : E.red; }
-export function attackY(team){ return team === 'b' ? 0 : S.FIELD_H; }   // branka, na kterou tým útočí
+export function attackY(team){ return team === 'b' ? 0 : FIELD_H; }   // branka, na kterou tým útočí
 // Tyhle tři jsou jen tenké obálky nad stat() — žádná vlastní logika, aby existovalo
 // jediné místo, kde se ze základu a hodnocení dělá výsledná hodnota.
 // brankář nemá žádný kouzelný dosah — chytá jen tělem, stejně jako kdokoliv jiný
@@ -18,13 +18,13 @@ export function stealR(p){ return PH + stat(p, 'tackleR'); }
 export function speedOf(p){ return stat(p, 'speedBase'); }
 // vápno — roste se šířkou branky, takže se ladí jedním posuvníkem
 export function boxW(){ return Math.min(FIELD_W*0.70, T.goalW*2.9); }
-export function boxD(){ return Math.min(S.FIELD_H*0.25, T.goalW*1.7); }
+export function boxD(){ return Math.min(FIELD_H*0.25, T.goalW*1.7); }
 export function inBox(x, y, team){
   return Math.abs(x - FIELD_W/2) < boxW()/2 && Math.abs(y - attackY(team)) < boxD()*1.3;
 }
 // vlastní vápno brankáře: kam se smí postavit a kde je chráněný
 export function ownBoxOf(p){
-  var own = p.team === 'b' ? S.FIELD_H : 0, far = own + dirOf(p.team)*boxD();
+  var own = p.team === 'b' ? FIELD_H : 0, far = own + dirOf(p.team)*boxD();
   return { x0: FIELD_W/2 - boxW()/2, x1: FIELD_W/2 + boxW()/2,
            y0: Math.min(own, far), y1: Math.max(own, far), own: own };
 }

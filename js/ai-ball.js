@@ -1,5 +1,5 @@
 // Hráč s míčem: střílí / centruje / jde si sám / přihrává / dribluje, a drží plán.
-import { T, FIELD_W, SETTLE, dirOf } from './config.js';
+import { T, FIELD_W, FIELD_H, SETTLE, dirOf } from './config.js';
 import { S, ball, dist } from './state.js';
 import { foesOf, matesOf, attackY, speedOf, pickupOf, boxD, inBox, moveTo,
          laneClear, nearestFoeDist, kickPlan, speedForDistance, doPass } from './util.js';
@@ -88,7 +88,7 @@ export function decide(p){
   }
   return { kick:false,
            x: Math.max(40, Math.min(FIELD_W-40, tx)),
-           y: Math.max(30, Math.min(S.FIELD_H-30, ty)) };
+           y: Math.max(30, Math.min(FIELD_H-30, ty)) };
 }
 
 export function driveCarrier(p, dt){

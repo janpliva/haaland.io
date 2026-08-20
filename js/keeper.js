@@ -1,5 +1,5 @@
 // Brankář: postavení, detekce střely, zákrok, vyražení, výběh a rozehrávka.
-import { T, FIELD_W, STEAL_LOCK, dirOf } from './config.js';
+import { T, FIELD_W, FIELD_H, STEAL_LOCK, dirOf } from './config.js';
 import { S, E, ball } from './state.js';
 import { speedOf, moveTo, boxD, clampToBox, ballAtT, pickChasers, kickPlan,
          laneClear, matesOf, segDist, stat, airborne, ballRestT } from './util.js';
@@ -11,7 +11,7 @@ const RUSH_DROP = 80;        // o kolik dál než spouštěč musí držitel cou
 export function goalBound(g){
   if(ball.owner) return false;
   if(Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy) < 1) return false;
-  var own = g.team === 'b' ? S.FIELD_H : 0;
+  var own = g.team === 'b' ? FIELD_H : 0;
   if(ball.vy * (-dirOf(g.team)) <= 0) return false;      // neletí k mé brance
   var t = (own - ball.y) / ball.vy;
   if(!(t > 0)) return false;
@@ -36,7 +36,7 @@ export function crossX(gy){
 // Sázka: brankář opustí branku a jde si pro míč k noze soupeře. Když ho útočník obejde, je
 // brána prázdná — o to jde. Beatelnost dělá závazek: jednou vyběhnutý brankář se po
 // gkRushCommit nedá odvolat.
-function goalOf(g){ return { x: FIELD_W/2, y: g.team === 'b' ? S.FIELD_H : 0 }; }
+function goalOf(g){ return { x: FIELD_W/2, y: g.team === 'b' ? FIELD_H : 0 }; }
 function distToGoal(g, p){ var o = goalOf(g); return Math.sqrt((p.x-o.x)*(p.x-o.x) + (p.y-o.y)*(p.y-o.y)); }
 
 // „sám na bránu": držitel nemá kam přihrát a mezi ním a brankou nikdo z mého týmu nestojí
@@ -107,7 +107,7 @@ export function rushClear(g){
 
 export function playKeeper(g, dt){
   if(ball.owner === g) return;                       // má míč, řeší ho driveCarrier
-  var own = g.team === 'b' ? S.FIELD_H : 0, cx = FIELD_W/2;
+  var own = g.team === 'b' ? FIELD_H : 0, cx = FIELD_W/2;
 
   // parametry zákroku se vzorkují JEDNOU na začátku střely a do konce se nepřepočítávají
   if(goalBound(g)){
@@ -174,7 +174,7 @@ export function parry(g){
 export function keeperPlan(p, press, dir){
   // nikdo blízko → rozehraje nohama, ale nejdál boxD()+gkVenture od vlastní branky
   if(press > T.gkVentureSafe){
-    var ogk = p.team === 'b' ? S.FIELD_H : 0;
+    var ogk = p.team === 'b' ? FIELD_H : 0;
     return { kick:false, x: p.x, y: ogk + dir*(boxD() + T.gkVenture) };
   }
   return kickPlan(p, (Math.random()-0.5)*600, dir*900);

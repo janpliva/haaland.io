@@ -2,6 +2,14 @@
 // panel i DEFAULTS se generují z TUNABLES, takže nový posuvník = jeden řádek tady.
 
 export const FIELD_W = 1200;
+// Délka hřiště je PEVNÁ. Dřív se dopočítávala z viewportu (FIELD_H = cssH / scale), takže
+// každý displej hrál na jinak dlouhém hřišti — a s nakloněnou kamerou by se svislá osa
+// stlačila a délka hřiště by se tím tiše změnila znovu. Hodnota vychází z toho, co dosavadní
+// vzorec dával na telefonech: 375×812 → 2598,4; 390×844 → 2596,9; 430×932 → 2600,9.
+// 2600 je z nich nejblíž všem třem (nejvíc o 3,1 jednotky, tj. 0,12 %, což je na 390px
+// displeji jeden css pixel). Kamera si teď hřiště o pevných rozměrech nafitne do viewportu
+// a co nesedí, olemuje — nikdy neroztáhne.
+export const FIELD_H = 2600;
 export const PH = 15;                  // půlka strany hráče
 export const BALL_R = 10;
 export const CONTACT = PH + BALL_R;    // vzdálenost středů, kdy se hráč míče dotýká
@@ -79,8 +87,19 @@ export const TUNABLES = [
   { key:'joyR',          def:70,   min:40,  max:100,  step:2,   label:'Velikost joysticku',          group:'Joystick' },
   { key:'passThresh',    def:122,  min:100, max:180,  step:2,   label:'Práh přihrávky',              group:'Joystick' },
 
+  // Kamera se naklápí: svět (x, y, z) se promítá jako sx = x, sy = y*cos(náklon) − z*sin(náklon).
+  // Při 0 je to přesně dosavadní pohled shora (z ze vzorce vypadne) — to je kontrola, proti
+  // které se všechno ostatní měří. Výška hráče je čistě vykreslení, simulace ji nikde nečte;
+  // při 0 jsou z hráčů zase ploché čtverce.
+  { key:'camTilt',       def:30,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
+  { key:'playerH',       def:55,   min:0,   max:120,  step:5,   label:'Výška hráče',                 group:'Kamera' },
+
   // Rozměry branky a délka zápasu. Šířkou branky se škáluje i vápno.
   { key:'goalW',         def:240,  min:100, max:500,  step:10,  label:'Šířka branky',                group:'Hřiště a zápas' },
+  // Branka má výšku: gól platí jen mezi tyčemi A POD břevnem. Lob, který by dřív propadl
+  // do sítě v jakékoliv výšce, teď může jít přes. Tyč i břevno míč odrazí zpátky do hry
+  // stejnou pružností jako mantinel.
+  { key:'goalH',         def:90,   min:40,  max:200,  step:5,   label:'Výška branky',                group:'Hřiště a zápas' },
   { key:'targetGoals',   def:5,    min:1,   max:15,   step:1,   label:'Hraje se do N gólů',          group:'Hřiště a zápas' },
 
   // Rozhodování hráče s míčem a náběhy bez míče.
