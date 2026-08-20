@@ -22,13 +22,17 @@ function onDown(x, y, id){
   touch.active = true; touch.id = id; touch.x = x; touch.y = y;
 }
 function onMove(x, y, id){ if(touch.active && touch.id === id){ touch.x = x; touch.y = y; } }
-// zvednutí prstu mimo práh = přihrávka tím směrem; zvednutí uvnitř = nic (nabití zrušeno návratem)
+// Zvednutí prstu MIMO práh = přihrávka tím směrem. Zvednutí UVNITŘ prahu už neznamená nic
+// — je to přepnutí vzdušného režimu, protože pohyb se zvednutím prstu nezastavuje (viz step()).
+// Zastavit se dá pořád: vrátit prst do středu joysticku, výchylka spadne na nulu a při
+// nejbližším doteku hráč stojí. Přerušení systémem (cancel) není ani jedno.
 function onUp(x, y, id, cancel){
   if(touch.id !== id) return;
   if(!cancel){
     var dx = x - joyBase.x, dy = y - joyBase.y, d = Math.sqrt(dx*dx+dy*dy);
     // čím dál za prahem prst zvedneš, tím silnější přihrávka
     if(d > T.joyR*(T.passThresh/100)) touch.fire = { x:dx/d, y:dy/d, pw:passPower(d) };
+    else touch.lift = true;
   }
   touch.active = false; touch.id = null;
 }

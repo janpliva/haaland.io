@@ -2,7 +2,7 @@
 import { T, FIELD_W, STEAL_LOCK, dirOf } from './config.js';
 import { S, E, ball } from './state.js';
 import { speedOf, moveTo, boxD, clampToBox, ballAtT, pickChasers, kickPlan,
-         laneClear, matesOf, segDist, stat } from './util.js';
+         laneClear, matesOf, segDist, stat, airborne, ballRestT } from './util.js';
 
 let shotSeq = 0;
 const RUSH_DROP = 80;        // o kolik dál než spouštěč musí držitel couvnout, aby výběh skončil
@@ -21,7 +21,9 @@ export function goalBound(g){
 export function crossX(gy){
   var v0 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
   if(v0 < 0.001) return ball.x;
-  var tStop = v0/T.friction, prev = ball.y - gy;
+  // Vzdušná střela se počítá stejným ballAtT — ten si letovou fázi obslouží sám. Jen horizont
+  // hledání musí být delší: ve vzduchu se nebrzdí třením, takže by v0/tření skončilo moc brzy.
+  var tStop = airborne() ? ballRestT() : v0/T.friction, prev = ball.y - gy;
   for(var t=0.02; t<=tStop; t+=0.02){
     var b = ballAtT(t, v0), cur = b.y - gy;
     if((prev < 0) !== (cur < 0)) return b.x;
@@ -154,11 +156,16 @@ export function playKeeper(g, dt){
 }
 
 // rychlý míč brankář nechytí, jen vyrazí pryč od své branky
+// Vzdušný míč se vyráží stejně: vodorovně pryč od branky, a svisle se ze stejného podílu
+// gkParryKeep udělá vyskočení NAHORU — vyražený míč se tak zvedne a spadne, místo aby
+// pokračoval do země. U pozemního míče je vz nula, takže tam zůstává všechno jako dřív.
 export function parry(g){
   var v = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
   var a = Math.atan2(dirOf(g.team), 0) + (Math.random()*2 - 1)*(50*Math.PI/180);
   var nv = v * (T.gkParryKeep/100);
   ball.vx = Math.cos(a)*nv; ball.vy = Math.sin(a)*nv;
+  ball.vz = Math.abs(ball.vz) * (T.gkParryKeep/100);
+  ball.airLand = 0;
   S.lockedPlayer = g; S.lockOut = STEAL_LOCK;        // vlastní odraz si hned nesebere
   pickChasers();
 }

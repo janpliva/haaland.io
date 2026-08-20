@@ -46,6 +46,15 @@ early for the ball owner and for an actively lunging player, because those two a
 `carryChase` and `lungeStep` instead — that early return is what keeps the two movement
 systems from fighting.
 
+It also owns the **ball in the air**: `airStep` (one frame of flight, including resolving a
+landing at the exact instant it happens), `airProfile`/`ballAtT` (where the ball will be at
+time *t*, through every bounce), `airLandingT`/`ballRestT`, `airFirstTouch` and `takerAt`.
+There is only one prediction model — claim, intercept, chaser and keeper all read
+`airProfile`, so they cannot disagree about where a lofted ball comes down. A ball on the
+ground has `z` and `vz` both zero and every aerial branch is skipped, which is what keeps
+ground play bit-identical to before the feature; do not add a branch that reads `z` without
+that being true.
+
 - **Imports must stay one-way**: config → state → store → util → ai/keeper → match → input →
   render/ui → menu → main. No cycles. If a cycle appears, move the shared piece down a layer.
   `menu.js` imports `match.js` for `newMatch`, so `match.js` must never import `menu.js` —

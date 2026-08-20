@@ -4,7 +4,8 @@ import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField
          histPush, locked } from './state.js';
 import { foesOf, speedOf, stealR, inOwnBox, bufferInput, updateClaim, lungeStep, lungeActive,
          carryChase, startKick, holdBall, doPass, pickChasers, rollDist,
-         driveMove, refreshPeakGap } from './util.js';
+         driveMove, refreshPeakGap, airborne, airStep, rollBall, takerAt, airFirstTouch,
+         airApex } from './util.js';
 import { updateJoyBase, passPower, passSpeedFor } from './input.js';
 import { attack } from './ai-off.js';
 import { defend } from './ai-def.js';
@@ -44,6 +45,19 @@ function step(dt){
   S.recv = (!ball.owner && ball.claim && ball.claim.team === S.ctrl.team) ? ball.claim : null;
   S.aimFrom = ball.owner === S.ctrl ? S.ctrl : S.recv;
 
+  // Vzdušný režim platí na JEDNO DRŽENÍ MÍČE: jakmile ho nabitý hráč nemá — odebrání, ztráta,
+  // nebo právě odehraný vzdušný kop (ten držení taky končí) — režim spadne zpátky na zem.
+  if(S.airMode && ball.owner !== S.airBy){ S.airMode = false; S.airBy = null; }
+  // Zvednutí prstu uvnitř prahu přepíná vzdušný režim, ale jen když mám míč — nabíjí se to
+  // konkrétnímu držiteli. Vyhodnocuje se tady, ne v obsluze dotyku, aby se stav neměnil v pauze.
+  if(touch.lift){
+    touch.lift = false;
+    if(ball.owner === S.ctrl){
+      S.airMode = !S.airMode;
+      S.airBy = S.airMode ? S.ctrl : null;
+    }
+  }
+
   var sx = S.ctrl.fx, sy = S.ctrl.fy, stickSF = 0, stickD = 0;
   if(touch.active){
     var dx = touch.x - joyBase.x, dy = touch.y - joyBase.y;
@@ -65,7 +79,15 @@ function step(dt){
 
   // vstup se nabufferuje; v cyklu doteku se běží po touchDir, ne po sticku — proto zvednutý
   // prst hráče uprostřed cyklu nezastaví a dotek (a s ním nachystaná přihrávka) vždycky přijde
-  var mv = bufferInput(S.ctrl, sx, sy, stickSF);
+  //
+  // ZMĚNA PRAVIDLA: zvednutý prst už držitele NEZASTAVUJE ani při doteku. Záměr z posledního
+  // doteku se DRŽÍ, takže hráč s míčem běží dál stejným směrem a stejnou rychlostí — jinak by
+  // se s každým přepnutím vzdušného režimu zastavil. Zastavit jde pořád: vrátit prst do STŘEDU
+  // joysticku, výchylka spadne na nulu a při nejbližším doteku hráč stojí, přesně jako dřív.
+  // Bez míče se nic nemění — tam se zvednutím prstu pořád stojí (a není co přepínat).
+  var mv = (!touch.active && ball.owner === S.ctrl)
+         ? { x:S.ctrl.bx, y:S.ctrl.by, sf:S.ctrl.bsf }
+         : bufferInput(S.ctrl, sx, sy, stickSF);
   // s míčem ho vede doběh, a při zpracování cuknutí — ale to jen když po něm opravdu něco
   // chce. Když si míč jede rovnou na něj, řídí dál stickem a nic ho nemrazí.
   var driven = (ball.owner === S.ctrl) || lungeActive(S.ctrl);
@@ -97,10 +119,13 @@ function step(dt){
     // aim:true = směr je zatím ČISTĚ ten zamířený. Nepřesnost podle hodnocení `passing`
     // se přidá až v doPass, tedy v okamžiku odehrání — plán AI si ji nese už z kickPlan,
     // ale člověk ji nesmí vidět dopředu, jinak by si ji stickem vykompenzoval.
+    // air se zamyká TEĎ, při puštění prstu: hráč viděl oranžový oblouk, takže to je to, co
+    // dostane, i když se režim mezitím přepne. Vzduchem se dá odehrát jen vlastní míč —
+    // jednodotyková přihrávka na letící míč se nabíjí bez držení, a tam se režim nezapíná.
     if(S.aimFrom)
       ball.pending = { x:touch.fire.x, y:touch.fire.y, speed:passSpeedFor(touch.fire.pw),
                        until: ball.owner === S.ctrl ? S.time + T.passQueueMax/1000 : 0,
-                       aim:true };
+                       aim:true, air: !!(S.airMode && ball.owner === S.ctrl) };
     touch.fire = null;
   }
 
@@ -125,12 +150,12 @@ function step(dt){
   carryChase(dt);
 
   // --- míč: VŽDYCKY obyčejná fyzika, nikdy přilepený na hráče ---
-  var sp2 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
-  if(sp2 > 0){
-    var ns = Math.max(0, sp2 - T.friction*dt);
-    ball.vx = ball.vx/sp2*ns; ball.vy = ball.vy/sp2*ns;
-  }
-  ball.x += ball.vx*dt; ball.y += ball.vy*dt;
+  // Ve vzduchu platí jiná: vodorovně brzdí odpor vzduchu místo tření, svisle táhne gravitace a
+  // při dopadu se míč odrazí. Dopad se řeší uvnitř airStep přesně v okamžik, kdy nastane.
+  // Mantinely a branka jsou pro obě prostředí stejné: branka VÝŠKU NEMÁ, takže i lob přes
+  // brankáře je gól, když prolétne mezi tyčemi.
+  if(airborne()) airStep(dt);
+  else rollBall(dt, T.friction);
   if(ball.x < BALL_R){ ball.x = BALL_R; ball.vx = -ball.vx*0.72; }
   if(ball.x > FIELD_W-BALL_R){ ball.x = FIELD_W-BALL_R; ball.vx = -ball.vx*0.72; }
   // v brance se míč neodrazí — projde a je gól
@@ -194,19 +219,25 @@ function step(dt){
   // --- převzetí: JEDINÉ místo, kde se volný míč zastaví, je dotyk tělem ---
   // Dosah zpracování už míč nebrzdí ani nestáčí — jen určuje, kdo si ho narokuje (updateClaim
   // výš). Míč si letí dál přesně tak, jak letěl, dokud ho někdo fyzicky nezastihne.
+  // Míč ve vzduchu si vzít NEJDE — proletí nad hlavami. Jediná výjimka je brankář: ten chytá
+  // i míč nad zemí, do svého normálního dosahu, protože přesně to brankář dělá.
   if(!ball.owner){
-    var taker = null, takeD = 1e9;
-    for(var k=0;k<E.all.length;k++){
-      var p = E.all[k];
-      if(locked(p)) continue;
-      var pd = dist(p, ball);
-      if(pd <= CONTACT && pd < takeD){ takeD = pd; taker = p; }
-    }
+    var taker = takerAt(ball.x, ball.y, ball.z > 0);
     if(taker){
-      var tv = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+      // na chycení je rozhodující CELÁ rychlost i se svislou složkou — padající centr je rychlý,
+      // i když se po zemi skoro nehýbe
+      var tv = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy + ball.vz*ball.vz);
       if(taker.role === 'gk' && tv > T.gkParrySpeed) parry(taker);   // moc rychlé na chycení
       else {
-        ball.owner = taker; ball.vx = ball.vy = 0; ball.held = true; S.lastTeam = taker.team;
+        // Padal? Pak to bude DELŠÍ první dotek — rychlost se schválně nenuluje, směr i sílu
+        // z ní vezme airFirstTouch v bloku kontaktu níž (ještě v tomhle snímku).
+        // Brankář je výjimka: ten padající míč CHYTÁ, nezpracovává ho nohou. Jestli mu na to
+        // je moc rychlý, řeší se to o řádek výš vyražením, ne polovičatým chycením.
+        var drop = (ball.vz < 0 && taker.role !== 'gk') ? -ball.vz : 0;
+        ball.owner = taker; ball.z = 0; ball.vz = 0; ball.airLand = drop;
+        if(drop > 0){ ball.held = false; ball.chaseV = 0; ball.chaseM = 0; }
+        else { ball.vx = ball.vy = 0; ball.held = true; }
+        S.lastTeam = taker.team;
         ball.claim = null; ball.gained = S.time;
         // Nachystaná přihrávka PŘEŽIJE převzetí vlastním hráčem: blok kontaktu hned pod tímhle
         // ji v tomtéž snímku odehraje, takže se hraje z první — příjem je ten dotek, který ji
@@ -230,10 +261,16 @@ function step(dt){
     if(dist(o, ball) <= CONTACT){
       if(ball.pending){
         // odehrává se z místa míče a v uloženém směru, ne kam ukazuje prst teď
-        var pp = ball.pending; ball.pending = null;
+        var pp = ball.pending; ball.pending = null; ball.airLand = 0;
         // nepřesnost se počítá tomu, kdo do míče doopravdy kope, ne tomu, kdo mířil —
         // jednodotykovou přihrávku může odehrát i jiný spoluhráč, který k míči dorazí dřív
-        doPass(pp.x, pp.y, pp.speed, pp.aim ? o : null);
+        // Nachystaná jednodotyková přihrávka na padající míč tak odejde HNED PŘI DOSEDNUTÍ,
+        // stejně jako po zemi — první dotek se v tom případě vůbec nekoná.
+        doPass(pp.x, pp.y, pp.speed, pp.aim ? o : null, pp.air);
+      } else if(ball.airLand > 0){
+        // padající míč: delší první dotek, škálovaný svislou rychlostí dopadu
+        var drop2 = ball.airLand; ball.airLand = 0;
+        airFirstTouch(o, drop2);
       } else {
         // Se setrvačností nesmí hráč kopnout tvrději, než jak rychle opravdu běží: bsf je jen
         // ZÁMĚR (výchylka sticku) a při rozjezdu je 1, i když hráč skoro stojí — míč by odletěl
@@ -266,8 +303,12 @@ function step(dt){
   }
 
   // uložit aiming pro vykreslení
-  // linka je jen podíl ze skutečného doletu — má ukázat směr a sílu, ne prozradit dopad
-  S.drawAim = aiming ? { x:aimX, y:aimY, len:rollDist(passSpeedFor(aimPw)) * (T.aimLen/100) } : null;
+  // linka je jen podíl ze skutečného doletu — má ukázat směr a sílu, ne prozradit dopad.
+  // Ve vzduchu se délka počítá STEJNĚ (aby šly obě síly porovnat), ale kreslí se jako oblouk
+  // vysoký jako skutečný vrchol letu — tvar dráhy je pravdivý, délka je pořád jen ukazatel.
+  var aimV = passSpeedFor(aimPw);
+  S.drawAim = aiming ? { x:aimX, y:aimY, len:rollDist(aimV) * (T.aimLen/100),
+                         air: !!(S.airMode && ball.owner === S.ctrl), apex: airApex(aimV) } : null;
 }
 
 // ---- hlavní smyčka ----
