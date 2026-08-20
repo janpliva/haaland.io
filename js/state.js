@@ -1,6 +1,6 @@
 // Veškerý měnitelný stav hry. Importy jsou v modulech jen pro čtení, takže všechno,
 // co se přiřazuje z víc míst, musí žít jako VLASTNOST objektu — proto S, E, ball, touch.
-import { T, FIELD_W, PH, CONTACT, dirOf, mkRatings, resolveRatings, MATCH_TIMES } from './config.js';
+import { T, FIELD_W, FIELD_H, PH, CONTACT, dirOf, mkRatings, resolveRatings, MATCH_TIMES } from './config.js';
 
 export const cv = document.getElementById('c');
 export const ctx = cv.getContext('2d');
@@ -26,7 +26,10 @@ export const S = {
   // prstu BEZ přihrávky (viz input.js) a platí na jedno držení míče — airBy je hráč, kterému
   // se to nabilo, takže ztráta míče režim shodí.
   airMode:false, airBy:null,
-  cssW:0, cssH:0, scale:1, FIELD_H:2000
+  // Z viewportu se drží už jen jeho velikost v css px. Hřiště má pevné rozměry (FIELD_W ×
+  // FIELD_H v config.js) a měřítko i posun si počítá kamera v render.js, protože závisí na
+  // náklonu, a ten se dá hýbat posuvníkem kdykoliv — ne jen při změně velikosti okna.
+  cssW:0, cssH:0
 };
 
 export const ball = { x:0, y:0, vx:0, vy:0, owner:null, gained:0,
@@ -152,13 +155,13 @@ export function histAt(p, delay){
 }
 
 export function resize(){
-  // nulový viewport by udělal scale=0 a FIELD_H=NaN, ze kterého se hra nevzpamatuje
+  // nulový viewport by udělal měřítko 0 a z něj samé NaN, ze kterých se hra nevzpamatuje
   S.cssW = window.innerWidth || 1; S.cssH = window.innerHeight || 1;
   var dpr = Math.min(window.devicePixelRatio || 1, 2.5);
   cv.width = Math.round(S.cssW * dpr); cv.height = Math.round(S.cssH * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  S.scale = S.cssW / FIELD_W;
-  S.FIELD_H = S.cssH / S.scale;
+  // Rozměry hřiště se z viewportu NEODVOZUJÍ. Tím padá i to, že se otočením telefonu uprostřed
+  // hry přesunula branková čára pod míč a padl gól.
 }
 
 // Kdo si teď nesmí sáhnout na míč. Dva nezávislé zámky: kdo míč právě ztratil (lockedPlayer)
@@ -172,7 +175,7 @@ export function dist(a,b){ var dx=a.x-b.x, dy=a.y-b.y; return Math.sqrt(dx*dx+dy
 export function clampField(p){
   var x0 = p.x, y0 = p.y;
   p.x = Math.max(PH, Math.min(FIELD_W-PH, p.x));
-  p.y = Math.max(PH, Math.min(S.FIELD_H-PH, p.y));
+  p.y = Math.max(PH, Math.min(FIELD_H-PH, p.y));
   // Co se u mantinelu uřízlo z dráhy, musí se uříznout i z rychlosti. Jinak by se do hráče
   // opřeného o čáru „nastřádala" rychlost do stěny a při odlepení by vystřelil.
   if(p.x !== x0 && ((p.x > x0) ? p.vx < 0 : p.vx > 0)) p.vx = 0;
@@ -206,18 +209,18 @@ export function buildTeams(){
 export function reset(kickTeam){
   kickTeam = kickTeam || 'b';
   var nB = T.teamSize, nR = T.foeSize;
-  E.blue[0].x = FIELD_W*0.5; E.blue[0].y = S.FIELD_H*0.80;
+  E.blue[0].x = FIELD_W*0.5; E.blue[0].y = FIELD_H*0.80;
   for(var i=1;i<nB;i++){
     var t = nB > 2 ? (i-1)/(nB-2) : 0.25;
     E.blue[i].x = FIELD_W*(0.18 + 0.64*t);
-    E.blue[i].y = S.FIELD_H*(0.46 + ((i%2) ? 0.10 : -0.06));
+    E.blue[i].y = FIELD_H*(0.46 + ((i%2) ? 0.10 : -0.06));
   }
   for(var j=0;j<nR;j++){
     var u = nR > 1 ? j/(nR-1) : 0.5;
     E.red[j].x = FIELD_W*(0.22 + 0.56*u);
-    E.red[j].y = S.FIELD_H*(0.28 + ((j%2) ? 0.16 : 0));
+    E.red[j].y = FIELD_H*(0.28 + ((j%2) ? 0.16 : 0));
   }
-  E.gkB.x = FIELD_W*0.5; E.gkB.y = S.FIELD_H - 45;
+  E.gkB.x = FIELD_W*0.5; E.gkB.y = FIELD_H - 45;
   E.gkR.x = FIELD_W*0.5; E.gkR.y = 45;
   E.all.forEach(function(p){
     p.fx = 0; p.fy = dirOf(p.team); p.tx = p.x; p.ty = p.y;

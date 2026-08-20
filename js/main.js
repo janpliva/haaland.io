@@ -1,5 +1,5 @@
 // Simulační krok, smyčka a start.
-import { T, FIELD_W, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
+import { T, FIELD_W, FIELD_H, BALL_R, CONTACT, STEAL_LOCK } from './config.js';
 import { S, E, ball, touch, joyBase, resize, buildTeams, reset, dist, clampField,
          histPush, locked } from './state.js';
 import { foesOf, speedOf, stealR, inOwnBox, bufferInput, updateClaim, lungeStep, lungeActive,
@@ -158,15 +158,27 @@ function step(dt){
   else rollBall(dt, T.friction);
   if(ball.x < BALL_R){ ball.x = BALL_R; ball.vx = -ball.vx*0.72; }
   if(ball.x > FIELD_W-BALL_R){ ball.x = FIELD_W-BALL_R; ball.vx = -ball.vx*0.72; }
-  // v brance se míč neodrazí — projde a je gól
+  // V brance se míč neodrazí — projde a je gól. Branka ale MÁ VÝŠKU: platí to jen mezi tyčemi
+  // A POD BŘEVNEM. Všechno ostatní po obvodu zůstává mantinel, přesně jako dosud (auty ani
+  // rohy tahle hra nemá), takže:
+  //   - střed míče mimo ústí branky   → tyč: odraz od koncové stěny, znak za znakem jako dřív
+  //   - střed míče výš než břevno     → přeletěl rám: taky odraz od koncové stěny
+  //   - do jedné koule nad břevnem    → BŘEVNO: k tomu se otočí i svislá rychlost, takže
+  //     stoupající míč to srazí dolů a padající vykopne nahoru; pružnost je 0,72 jako u stěn
+  // Rám má NULOVOU TLOUŠŤKU a testuje se střed míče, takže se ústí branky nezúžilo: co bylo
+  // gólem dřív, je jím dál, dokud to proletí pod břevnem.
   var inMouth = Math.abs(ball.x - FIELD_W/2) < T.goalW/2;
+  var underBar = ball.z < T.goalH;
+  var barHit = inMouth && ball.z >= T.goalH && ball.z <= T.goalH + BALL_R;
   if(ball.y < BALL_R){
-    if(inMouth){ goal('b'); return; }
+    if(inMouth && underBar){ goal('b'); return; }
+    if(barHit) ball.vz = -ball.vz*0.72;
     ball.y = BALL_R; ball.vy = -ball.vy*0.72;
   }
-  if(ball.y > S.FIELD_H-BALL_R){
-    if(inMouth){ goal('r'); return; }   // vlastní gól se počítá
-    ball.y = S.FIELD_H-BALL_R; ball.vy = -ball.vy*0.72;
+  if(ball.y > FIELD_H-BALL_R){
+    if(inMouth && underBar){ goal('r'); return; }   // vlastní gól se počítá
+    if(barHit) ball.vz = -ball.vz*0.72;
+    ball.y = FIELD_H-BALL_R; ball.vy = -ball.vy*0.72;
   }
   // odraz otočil volný míč o víc než 90° → závazek přestal dávat smysl, přepočítat
   if(!ball.owner){

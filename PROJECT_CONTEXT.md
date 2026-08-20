@@ -22,10 +22,15 @@ real kicks: you knock it ahead, it rolls under friction, and your player automat
 it until his body reaches it — and that contact is the only moment your input reaches the ball.
 
 The ball also has **height**. A pass can be played along the ground or lofted, and a ball in
-the air is untouchable — it flies over everyone and bounces when it lands. The renderer is
-still flat 2D top-down; height is drawn as the gap between the ball and its shadow.
+the air is untouchable — it flies over everyone and bounces when it lands.
 
-There are goals at both ends, a keeper each, and a scoreline. A match runs in one of two
+The view is **lightly 3D**: the camera is tilted `camTilt` degrees off vertical instead of looking
+straight down, and players, the ball and the goals have height. It is still a top-down game — a
+tilt, not a camera behind the player, and the simulation is untouched by it. At `camTilt` 0 the
+picture is exactly the old flat one, which is what every change is checked against.
+
+There are goals at both ends — with **posts and a crossbar**, so a lob can go over — a keeper
+each, and a scoreline. A match runs in one of two
 modes, chosen on the home screen: **na góly** (first to `targetGoals`) or **na čas** (the
 clock decides, and a level score at full time goes to a golden goal). A shot is just a pass —
 there is no separate shooting gesture, deliberately. Both teams play football: whoever touches
@@ -346,10 +351,72 @@ none at all in the 297 and 477 buckets, 12 across the fast runs, and the keeper 
 his own parry **zero** times. Neither keeper ever exceeded `boxD() + gkVenture` = 558 from his
 own goal; the most observed was 362.
 
+### Light 3D: the camera tilts, the simulation does not
+**Axonometric, not perspective.** World `(x, y, z)` reaches the screen as
+
+```
+sx = x
+sy = y·cos(camTilt) − z·sin(camTilt)
+```
+
+and that is then scaled to the viewport. Nothing shrinks with distance: two players at opposite
+ends of the pitch are the same size on screen. At `camTilt` 0 the `z` term is zero and the whole
+thing collapses to the old top-down projection — that is the control, and both the picture and
+the digest are checked against it.
+
+- **One projection, three functions.** `PX(x)`, `PY(y, z)` and `X(length)` in `render.js` are the
+  only places world units become pixels. Nothing outside `render.js` reads the camera.
+- **The pitch is fixed and the camera fits it.** 1200 × 2600 units, always. The scale is
+  `min(cssW/FIELD_W, cssH/envelope)` where the envelope is `FIELD_H·cos + goalH·sin` — the far
+  goal's crossbar is included so it cannot be cropped at small tilts. The smaller ratio wins, so
+  a viewport of the wrong aspect gets **letterboxed, never stretched**; the bands it leaves above
+  and below the pitch are where the stands sit.
+- **Depth sorting by world y.** Everything on the pitch — players, both goal frames, the ball —
+  is drawn from the smallest y (farthest) to the largest (nearest), so a nearer body covers a
+  farther one. The key is the *world* y, never the screen y: height must not let a tall object
+  jump forward in the order. Two exceptions, both deliberate: the ball's shadow is flat on the
+  grass under everything, and an **airborne ball is drawn last of all**, over every player,
+  because it is flying over them. A **carrier never hides his own ball**: while the ball is owned
+  its sort key is nudged just past its owner's. Without that, dribbling toward the far goal puts
+  the ball 25 units *behind* the carrier in depth and his body swallows it.
+- **Players are boxes** `playerH` tall. In this projection `x` is not sheared at all, so the
+  left/right faces have zero width: what you see is the **top face** (shirt number on it, squashed
+  with the face like any pitch marking) and the **front face**, drawn darker. The
+  controlled-player ring is drawn at head height rather than at the feet — on the ground its own
+  body would hide all but a sliver of it — and at tilt 0 it is exactly the old circle.
+- **The ball is a sphere** resting on the grass: its centre is drawn at `z + BALL_R`, which is
+  invisible at tilt 0. The old height cues stay — shadow on the true ground position, ball
+  growing slightly with `z` — because at small tilts the vertical offset alone is a weak signal.
+- **Stands** on all four sides: four flat quads rising away from the pitch, one fill each and
+  three rake lines, no crowd, no animation, no textures. They are scenery for the space the tilt
+  opens up. Constants live in `render.js` (`STAND`), not in the panel.
+- **Input is not inverse-projected.** A drag direction is the same world direction it always was.
+  The aim line, on the other hand, is drawn in world coordinates and projected like everything
+  else, so it shows the ball's true path and therefore **does not** sit at the thumb's on-screen
+  angle. Worst case at tilt 30 is **4.12°** (at a thumb direction 47° off the vertical axis; 0 for
+  a pure up/down or left/right drag). 15° → 0.99°, 45° → 9.88°, 55° → 15.72°.
+- **The aerial aim arc now bows in `z`** — the honest shape — whenever the camera can show height.
+  At `camTilt` 0 it cannot (the bow would project onto the aim direction itself), so there the
+  original sideways glyph is kept. Same rule for the little "aerial armed" arch over the carrier's
+  head. Note the honest arc still flattens for a lob aimed straight up the pitch at *any* tilt,
+  because `z` only ever moves a point vertically on screen: that direction is the degenerate one.
+
 ### Goals, scoring, match
-Both goals are centred on `FIELD_W/2`, mouth `goalW` wide. You attack the top (`y = 0`);
-the bottom is yours. Inside the mouth the end wall does not bounce the ball — it crosses and
-scores. Everywhere else it still bounces, so there are no throw-ins or corners, deliberately.
+Both goals are centred on `FIELD_W/2`, mouth `goalW` wide and `goalH` **tall**. You attack the top
+(`y = 0`); the bottom is yours. A goal counts when the ball crosses the line **between the posts
+and below the bar**; anything else at that end is a wall and bounces, so there are still no
+throw-ins or corners, deliberately.
+
+**The frame has no thickness** and the test is on the ball's centre, exactly as the mouth test
+always was. So the goal did not get narrower: what used to be a goal still is, as long as it
+passes under the bar, and "hitting the post" is the end-wall bounce that was already there. On top
+of that, a ball crossing the plane within one ball radius above the bar (`goalH ≤ z ≤ goalH +
+BALL_R`) is a **crossbar hit**: its vertical speed is reversed and scaled by the same 0.72 as the
+walls, so a rising ball is knocked down and a dropping one pops up. Higher than that it is simply
+over the frame and the end wall returns it. Measured (full-power ball fired at the line, `goalH`
+90): crossing at z ≤ 89.4 → goal; at 99.4 → bar, `vy` −700 → +504 and `vz` −566.7 → +408, landing
+back in play at y 693; at ≥ 109.4 → wall bounce, `vy` +504, `vz` untouched, back in play at y
+308–360. In every case the ball spends **one** frame at the line — it never sticks.
 
 A goal pauses play for 1.4 s, flashes, and calls `reset(kickNext)` — the conceding team
 kicks off. Own goals count for the other side; passing backwards into your own net is a real
@@ -464,8 +531,8 @@ skipped in ground play** and the game is bit-identical to before the feature —
 
 **Flight.** Gravity pulls `vz` down every frame. Horizontally an airborne ball is braked by
 `airDrag`, not by `friction`, using the same one-frame integrator (`rollBall`) so the two
-environments cannot drift apart by accident. Walls still bounce it and the goal still takes
-it — the goal has **no height**, so a lob between the posts scores whatever `z` is.
+environments cannot drift apart by accident. Walls still bounce it, and the goal takes it only
+**under the bar** — see "Goals, scoring, match" for what a lob over `goalH` does now.
 
 **Untouchable in the air.** A ball with `z > 0` cannot be dribbled, tackled or collected: it
 flies over everyone. The only exception is a **keeper**, who may catch or parry an airborne
@@ -576,7 +643,9 @@ ball. The catch/parry threshold uses the **full** speed including `vz`, so a dro
 that is barely moving across the ground still counts as fast. A keeper *catches* a dropping
 ball cleanly — the longer first touch is for outfielders only.
 
-Save rate, 400 trials per row, identical shooting positions for both kinds:
+Save rate, 400 trials per row, identical shooting positions for both kinds. Measured before the
+crossbar existed and before `gravity`, `airDrag` and `bounceDrag` were retuned in `9199e0d`, so
+the absolute numbers are historical:
 
 | shot | ground | aerial |
 |---|---|---|
@@ -586,28 +655,47 @@ Save rate, 400 trials per row, identical shooting positions for both kinds:
 | — from 325–400 | 69 % | 84 % |
 | half power (560) | 83 % | 87 % |
 
-Aerial shots are **easier** to save, and increasingly so with distance, because they land
-short and lose pace on the bounce. Height buys nothing against the keeper, because the goal
-has no height and neither does his reach.
+Aerial shots were **easier** to save, and increasingly so with distance, because they land
+short and lose pace on the bounce. Height bought nothing against the keeper, because his reach
+has no height either.
 
-**Drawing height in a flat top-down view.** The ball is drawn `z` above its real position and
-grows slightly with height, as if nearer the camera; a shadow ellipse is drawn at the true
-ground position under everything else, shrinking and fading as `z` rises. **The gap between
-ball and shadow is the actual cue** — the lifted ball alone is indistinguishable from a ball
-somewhere else. The `tackleR` ring is drawn only while the ball is on the ground: no ring
-means nobody can touch it.
+At today's defaults, and with the crossbar, 400 full-power shots from 150–400 units with only the
+keeper defending:
+
+| shot | goals | keeper stops it | over the frame |
+|---|---|---|---|
+| ground | 270 (67.5 %) | 130 (32.5 %) | 0 |
+| aerial, `goalH` 200 (i.e. as before) | 258 (64.5 %) | 142 (35.5 %) | 0 |
+| aerial, `goalH` 90 (default) | **33 (8.3 %)** | 142 (35.5 %) | **225 (56.3 %)** |
+
+The keeper stops **exactly the same 142** either way — the crossbar takes nothing away from him,
+it takes it from the shots that used to go in. See "Goals, scoring, match" for the band where a
+lob is under the bar at all.
+
+**Drawing height.** The ball is drawn `z` above its real position (and its centre a further
+`BALL_R` up, because a sphere rests *on* the grass) and grows slightly with height; a shadow
+ellipse is drawn at the true ground position under everything else, shrinking and fading as `z`
+rises. With the camera tilted, `z` is genuinely visible — but only as `z·sin(camTilt)`, which at
+30° is half of it, so **the gap between ball and shadow is still the cue** and both are kept. The
+`tackleR` ring is drawn only while the ball is on the ground: no ring means nobody can touch it.
 
 **Aerial mode is armed by a lift and shown two ways.** While the carrier is armed, a small
 orange arch is drawn above his head (clear of the ball at his foot), and the joystick's
 threshold ring and knob turn orange. Charging draws an orange dashed **arc** instead of the
 yellow straight line, its length computed exactly as the ground line's is (a fraction of the
-roll distance — indicative, not the landing point) and its bow equal to the real apex. The bow
-is drawn **perpendicular to the aim**, not toward the top of the screen: in a true top-down
-projection a pass aimed straight up the screen has its height and its direction on the same
-screen axis, so the honest projection degenerates into a straight line — and straight at the
-opposite goal is precisely the direction one lobs. The perpendicular bow is therefore a glyph,
-like the line's length already is. The ball in flight is still drawn honestly (offset by `z`,
-shadow below). A queued aerial pass keeps the armed-green colour but is drawn as the same arc.
+roll distance — indicative, not the landing point) and its bow equal to the real apex.
+
+**Where the bow points depends on whether the camera can show height.** With any tilt the bow is
+in `z`, i.e. the honest shape. At `camTilt` 0 it cannot be: height and the aim direction land on
+the same screen axis and the arc degenerates into a straight line — and straight at the opposite
+goal is precisely the direction one lobs — so at zero the original **perpendicular** glyph is
+kept, exactly as it was drawn before the camera tilted. The same rule drives the little arch over
+an armed carrier's head: over his head in `z` when there is a tilt, offset up the screen when
+there is not. Note the honest bow still flattens for a lob aimed straight up the pitch at any
+tilt, for the same reason — `z` only ever displaces a point vertically on screen.
+
+The ball in flight is always drawn honestly (offset by `z`, shadow below). A queued aerial pass
+keeps the armed-green colour but is drawn as the same arc.
 
 ### Passes are queued and fire at the next contact
 Because the ball is usually away from the foot, a pass cannot fire from where it lies.
@@ -835,9 +923,9 @@ one safe one. (This rationale is inferred from the code — the lane penalty
 ## 4. Architecture
 
 `index.html` (97) is a DOM shell, `styles.css` (281) the CSS, and the JS lives in `js/`:
-`config` (239), `state` (244), `store` (115), `util` (685), `ai-off` (121), `ai-def` (134),
-`ai-ball` (116), `keeper` (181), `match` (88), `input` (67), `render` (271), `ui` (63),
-`menu` (304), `main` (346).
+`config` (258), `state` (247), `store` (115), `util` (685), `ai-off` (121), `ai-def` (134),
+`ai-ball` (116), `keeper` (181), `match` (88), `input` (67), `render` (484), `ui` (63),
+`menu` (304), `main` (358).
 
 Imports run one way only: config → state → store → util → ai/keeper → match → input →
 render/ui → menu → main. Because module bindings are read-only, every value that is
@@ -856,7 +944,7 @@ time therefore only *records* `matchOver`; the return to the menu is triggered f
 in `main.js`, which sees `S.matchOver && S.screen === 'game'` and calls `openMenu(true)`.
 
 ```
-resize()                       canvas sizing + field scale      state.js
+resize()                       canvas sizing only               state.js
 mk / buildTeams / reset()      entities, kickoff positions      state.js
 STAT_SCALE / ratingMul / stat  ratings → scaled constants       config.js
 applyStoredRatings/saveRatings ratings persistence              store.js
@@ -887,15 +975,30 @@ openMenu / openSquad /
 frame()                        rAF loop                         main.js
 step(dt)                       all simulation                   main.js
 draw()                         all rendering                    render.js
+camUpdate / PX / PY / X        the only world→screen projection render.js
 buildPanel / clearStore        gear panel                       ui.js
 ```
 
 ### Coordinate system
-The field is **always 1200 logical units wide**. `scale = cssW / 1200`, and `FIELD_H` is
-derived from the viewport: `FIELD_H = cssH / scale`. The literal `FIELD_H: 2000` in `S` is
-overwritten by the first `resize()`. On a 375×812 phone `scale` is 0.3125 and the pitch is
-1200×2598 units. `X(v) = v * scale` converts field units to css px for drawing; the joystick
-is drawn in css px directly. Device pixel ratio is capped at 2.5.
+The pitch is **fixed at 1200 × 2600 logical units** — `FIELD_W` and `FIELD_H`, both constants in
+`config.js`. It used to be `FIELD_H = cssH / scale`, i.e. a different pitch length on every
+device; 2600 is the round number closest to what that formula produced on phones (375×812 →
+2598.4, 390×844 → 2596.9, 430×932 → 2600.9), so the change is at most 3.1 units, 0.12 %.
+
+The camera (`render.js`) turns world coordinates into css px and nothing else does:
+
+```
+X(v)      = v · k                                 length → css px
+PX(x)     = ox + x · k
+PY(y, z)  = oy + (y·cos(camTilt) − z·sin(camTilt)) · k
+k         = min(cssW/FIELD_W, cssH/(FIELD_H·cos + goalH·sin))     fit, never stretch
+```
+
+`ox`/`oy` centre that envelope, so a viewport of the wrong aspect is letterboxed. On 375×812:
+at tilt 0, `k` = 0.31231 (against 0.3125 before — 0.06 % smaller, 0.2 px of side band); at tilt
+30, `k` = 0.3125, the width binds exactly as it always did, and the pitch takes 718 of the 812
+css px, leaving ~47 px of stand above and below. The joystick and the HUD are drawn in css px
+directly and the camera does not touch them. Device pixel ratio is capped at 2.5.
 
 ### Entities
 `mk(team, role, num)` → `{ x, y, fx, fy, team, tx, ty, think, seed, sf, role, num, plan, side,
@@ -912,7 +1015,9 @@ velocity ring (`mkHist`). `rush*` is the keeper's charge. `num` is the shirt num
 only, never read by the simulation. `ratings` is his 0–99 map and `mul` the multipliers
 derived from it. `assignRoles` adds `lane`, `laneN`, `band`, `prefD` to teammates at runtime.
 
-Players are 30×30 squares (`PH = 15` half-side), `BALL_R = 10`, so `CONTACT = 25`.
+Players are 30×30 squares to the simulation (`PH = 15` half-side), `BALL_R = 10`, so
+`CONTACT = 25`. The drawn box is that footprint plus `playerH` of height, which nothing in the
+simulation reads.
 Arrays: `E.blue`, `E.red`, `E.all`, plus `E.gkB` / `E.gkR`. Outfielders are numbered 1..n per
 team in `buildTeams`; the keeper is last in each list and carries `num` 0.
 
@@ -929,8 +1034,9 @@ committed to a loose ball).
 `gkCleared` / `gkClearOut`, `lastTeam`, `kickNext`, `scoreB`, `scoreR`, `matchOver`,
 `running`, `deadTime`, `roleTimer`, `lastCarrier`, `drawAim`, `aimFrom` / `recv` (one-tap),
 `airMode` / `airBy` (aerial mode and who it is armed for),
-the match mode (`mode`, `matchLen`, `clock`, `sudden`) and the viewport values
-`cssW`/`cssH`/`scale`/`FIELD_H`. The guard counters `gapWarn` / `gapWarnLog` are **not**
+the match mode (`mode`, `matchLen`, `clock`, `sudden`) and the viewport size `cssW`/`cssH` —
+which is all that is left of the viewport in `S`, since the pitch is a constant and the scale
+belongs to the camera. The guard counters `gapWarn` / `gapWarnLog` are **not**
 declared in `S` — `step()` creates them on the first warning, so they are absent until one
 fires.
 
@@ -985,19 +1091,28 @@ match is restarted from the menu, never by tapping the pitch.
 11. Control switch, then the aim line for drawing.
 
 ### Rendering
-Immediate mode, redrawn every frame, painter's order: pitch fill → stripes → boundary /
-halfway / centre circle → goals and boxes → **ball shadow** (at the ball's true ground
-position, always, under everything) → for each player (pickup-radius ring, body square,
-white outline if he owns the ball, **shirt number** — dark-stroked white digit filling the
-square, or a dark dot for a keeper — white ring at `PH*1.2` if he is the controlled player,
-facing tick, which starts at the body edge rather than the centre so it does not strike
-through the number) → **aerial-mode arch** above the armed carrier →
-anticipated-receiver ring (dashed, yellow while charging, green once armed) →
-armed-pass line (green, dotted or arced, from `S.aimFrom`) → charge aim line (yellow straight
-or orange arced, dashed, from `S.aimFrom`) → ball, drawn `z` above its position and scaled up
-with height, plus its `tackleR` ring **only while on the ground** → joystick (inner ring,
-dashed threshold ring — orange while aerial mode is armed, knob clamped to the threshold
-radius). The ball is therefore always above the players, and its shadow always below them.
+Immediate mode, redrawn every frame. The camera is recomputed at the top of `draw()`, not in
+`resize()` — `camTilt` and `goalH` are sliders and may move at any time.
+
+Painter's order: surround fill → **stands** (far, left, right, near) → pitch fill → stripes →
+boundary / halfway / centre circle → goal areas and boxes → goal lines and the post marks on the
+grass → **ball shadow** (at the ball's true ground position, always, under everything) → **the
+depth-sorted pass** → aerial-mode arch above the armed carrier → anticipated-receiver ring
+(dashed, yellow while charging, green once armed) → armed-pass line (green, dotted or arced, from
+`S.aimFrom`) → charge aim line (yellow straight or orange arced, dashed, from `S.aimFrom`) → the
+ball **if it is airborne** → joystick (inner ring, dashed threshold ring — orange while aerial
+mode is armed, knob clamped to the threshold radius).
+
+The depth-sorted pass holds both goal frames, all players and the ball when it is on the ground,
+ordered by world y. Per player: pickup-radius ellipse on the grass, front face, top face, white
+outline if he owns the ball, **shirt number** on the top face (dark-stroked white digit filling
+the square, or a dark dot for a keeper), white ring at `PH*1.2` at head height if he is the
+controlled player, facing tick on the top face — it starts at the body edge rather than the
+centre so it does not strike through the number.
+
+So the ball is above the players only while it is flying; on the ground it can be hidden by a
+player nearer the camera (its shadow still shows through, since the shadow is under everything).
+That is one deliberate difference from the pre-tilt renderer even at `camTilt` 0.
 
 The controlled player's marker is a **stroked ring, not a filled disc**. It used to be a
 filled disc of radius `PH*1.9` = 28.5, which was wider than the ball's resting offset, so
@@ -1077,7 +1192,10 @@ these values. They are hand-tuned by playing — do not change one without being
 | `passLead` | 150 | 0–300 (5) | units | How far ahead of a moving teammate an AI pass is aimed, scaled by his `sf`. |
 | `joyR` | 70 | 40–100 (2) | css px | Inner ring radius. Also the distance at which you hit full speed. |
 | `passThresh` | 122 | 100–180 (2) | % of `joyR` | Outer ring radius — the charge boundary. ~85.4 css px at the default. |
+| `camTilt` | 30 | 0–55 (1) | degrees | Camera tilt off vertical. `sy = y·cos − z·sin`. **0 = the old top-down view**, and the control every check is run against. Rendering only — no simulation value reads it. |
+| `playerH` | 55 | 0–120 (5) | units | How tall a player's box is drawn. Rendering only; 0 gives flat squares again. 55 against a 240-unit goal is roughly human proportions, but the value is a look decision, hence a slider. |
 | `goalW` | 240 | 100–500 (10) | units | Goal mouth width, centred on `FIELD_W/2` at both ends. Also scales the boxes. |
+| `goalH` | 90 | 40–200 (5) | units | Crossbar height. **A goal counts only below it**; higher is a bounce off the frame. This one *does* change play — at 90 a full-power lob is under the bar only within 153 units of the kick or beyond 468. |
 | `targetGoals` | 5 | 1–15 (1) | count | First to this many goals wins. |
 | `shootRange` | 400 | 200–1600 (20) | units | How close to goal an AI carrier must be before it will shoot. |
 | `soloLane` | 50 | 20–160 (5) | units | How clear the line to goal must be before a central carrier goes alone. |
@@ -1118,7 +1236,9 @@ a new entry can go anywhere and nothing shifts.
 
 | Constant | Value | Where |
 |---|---|---|
-| `FIELD_W` | 1200 units (height derived from the viewport) | `config.js` |
+| `FIELD_W` | 1200 units | `config.js` |
+| `FIELD_H` | **2600 units, fixed.** Was `cssH / scale`, so the pitch was a different length on every device; 2600 is the round value closest to what phones produced (2598.4 / 2596.9 / 2600.9). The camera fits it and letterboxes the rest | `config.js` |
+| `STAND` | `gap 40, depth 560, h 250, rows 4` units — the four stands. Scenery, no gameplay effect, so deliberately not tunables. `depth·cos > h·sin` at every allowed tilt, which is what keeps the near stand from folding over the pitch | `render.js` |
 | Player half-size `PH` | 15 (30×30 square) | `config.js` |
 | `BALL_R` | 10 | `config.js` |
 | `CONTACT` | `PH + BALL_R` = **25** units — the contact test, and where a held ball sits | `config.js` |
@@ -1133,8 +1253,9 @@ a new entry can go anywhere and nothing shifts.
 | Role reassignment | every 2.2 s or on carrier change | `ai-off.js` |
 | Goal pause | 1.4 s | `match.js` |
 | `dt` cap | 0.033 s | `main.js` |
-| Wall restitution | 0.72 | `main.js` |
-| Controlled-player ring | `PH * 1.2` = 18 units, stroked | `render.js` |
+| Wall restitution | 0.72 — walls, posts and the crossbar alike | `main.js` |
+| Crossbar band | one `BALL_R` above `goalH`: a crossing inside it reverses `vz` too, above it is a plain wall bounce | `main.js` |
+| Controlled-player ring | `PH * 1.2` = 18 units, stroked, at head height | `render.js` |
 | DPR cap | 2.5 | `state.js` |
 
 ## 6. Running and deploying
@@ -1172,14 +1293,17 @@ Open questions (need a human answer):
   exceed half normal running speed, which is a strange ceiling for something described as a
   dart. It may want to live above 100, or the cap may want to be relative to the required
   speed instead.
-- **A crossbar.** The goal has no height, so a lofted shot between the posts scores whatever
-  `z` is — including one that in a 3D reading would have cleared the bar by metres. Nothing
-  in the code cares about `z` at the goal line. **Deliberately not added**, because it is a
-  tuning-and-design decision, not an implementation one: a `crossbar` tunable would need a
-  behaviour on hitting it (bounce down and back into play? out for a goal kick, which does
-  not exist here?). In practice it currently means the keeper — not a bar — is what a lob has
-  to beat, and he cannot be beaten by height either, since he catches an airborne ball at any
-  height inside his normal reach. Worth deciding whether that stays until the 3D work.
+- **A crossbar — now built** (`goalH`, default 90), with the answer to "what happens when you
+  hit it" being: it bounces back into play at the same 0.72 as every wall, because that is what
+  every other boundary here already does and there is no goal kick to award. The remaining
+  question is the **value**: at 90, a full-power lob scores only from inside 153 units or beyond
+  468, so 56 % of full-power lobs from 150–400 units now clear the bar (they scored before). That
+  may be right — the lob is supposed to cost something — or it may want a taller bar. It is one
+  slider; it needs playing, not arguing.
+- **Should the keeper know about the bar?** He does not: `goalBound()` still ignores `z`, so a
+  lob that will sail over is treated as a shot on goal and he reacts to it. Left alone
+  deliberately — it is an AI change, not a rendering one, and touching it would have muddied the
+  "the tilt changes nothing in the simulation" check. Fixing it is a `z` test in `goalBound`.
 - **Should the lift-holds-intent rule apply without the ball too?** Section 2 of the brief
   says "lifting the thumb no longer stops the player" and then explains it in terms of the
   carrier. It is implemented for the **carrier only** — off the ball a lift still stops him,
@@ -1204,9 +1328,10 @@ Known rough edges (behaviour, not necessarily bugs):
   to toggle and no other consequence of such a release, but a returning player using the old
   "lift to stop" habit will flip the mode: measured 27 toggles from 57 carrying releases in a
   scripted session that used that habit every third cycle.
-- **The aerial aim arc bows sideways, and the ball does not.** The arc is a glyph (see "The
-  ball has height"); the ball in flight is drawn honestly. A pass aimed straight up the screen
-  therefore previews as a sideways bow and then flies dead straight with a growing shadow gap.
+- **The aerial aim arc bows sideways at `camTilt` 0, and the ball does not.** At zero the arc is
+  a glyph (see "The ball has height"); with any tilt it bows in `z` and is honest. Either way a
+  pass aimed straight up the pitch previews almost flat, because that is the direction in which
+  height and travel share a screen axis.
 - **A minimum-power aerial pass is a 69-unit chip.** Barely more than two contact radii, so at
   the bottom of the power band the aerial and ground passes are nearly the same thing.
 - **An aerial pass cannot be intercepted in flight, only met on landing.** That is the design,
@@ -1219,14 +1344,32 @@ Known rough edges (behaviour, not necessarily bugs):
   received it), but worth knowing.
 - **Receiving cannot be done "quietly" while charged** — to keep a ball you receive with the
   thumb outside the ring, come back inside before lifting.
-- **Resizing the window mid-play can award a goal.** `FIELD_H` is derived from the viewport,
-  so shrinking the window leaves the ball behind the new goal line and it scores instantly.
-  Hit on desktop while testing; on a phone this would be a rotation.
+- **Resizing the window mid-play used to award a goal.** `FIELD_H` was derived from the
+  viewport, so shrinking the window left the ball behind the new goal line and it scored
+  instantly. Gone: the pitch is a constant now and a resize only changes the camera's scale.
 - **A zero-size viewport used to kill the game permanently.** `resize()` computed
   `scale = cssW / FIELD_W` then `FIELD_H = cssH / scale`; with `cssW = 0` that is `0/0 = NaN`,
-  every position became NaN and nothing was drawn again. Now guarded with `|| 1`. Worth
-  knowing because canvas silently ignores non-finite coordinates — there is no error, the
-  players simply vanish.
+  every position became NaN and nothing was drawn again. Now guarded with `|| 1`, and the
+  camera clamps its own divisor too. Worth knowing because canvas silently ignores non-finite
+  coordinates — there is no error, the players simply vanish.
+- **The thumb and the aim line do not agree on screen.** Deliberate: input is not
+  inverse-projected, the line is. Worst case 4.12° at `camTilt` 30, and 0 for a drag straight up,
+  down, left or right. It grows fast with tilt — 9.88° at 45, 15.72° at 55.
+- **The AI never lofts, so the crossbar is entirely the human's problem.** Six seeded 5-minute
+  matches were bit-identical with `goalH` at 90 and at 200 when the human kept the ball on the
+  ground: with no aerial ball, `z` is 0 and the height is never consulted.
+- **The crossbar is decided at frame granularity**, like the goal test always has been. A ball
+  dropping at 560 units/s moves ~9 units per frame, so which side of a 10-unit band it is judged
+  on is a near coin-flip. Both outcomes put the ball back in play, so it shows up as "sometimes
+  it comes down off the bar, sometimes it just comes back".
+- **A ground ball can be hidden by a player standing between it and the camera.** That is depth
+  sorting doing its job; the shadow, which is drawn under everything, is what still gives it
+  away. The one exception is the carrier, who never hides his own ball.
+- **The side stands are invisible in portrait.** The camera fits the pitch and on a phone the
+  width binds, so there is no horizontal band for them to sit in. They show in landscape.
+- **At `camTilt` 0 the goal frame collapses onto the goal line** — posts and bar have zero
+  projected height — so the goal reads exactly as the coloured line it was before. That is why
+  the frame is drawn in each goal's own colour rather than white.
 - **Contact stops the ball dead.** Taking possession zeroes the ball's velocity, so a
   reception kills the pass rather than running on with it. The one exception is a ball
   collected at a landing: that keeps pace as the longer first touch.
