@@ -1,7 +1,7 @@
 // Konstanty a laditelné hodnoty. Tohle je jediné místo, kde se mění výchozí hodnoty —
 // panel i DEFAULTS se generují z TUNABLES, takže nový posuvník = jeden řádek tady.
 
-export const FIELD_W = 1200;
+export const FIELD_W = 1600;
 // Délka hřiště je PEVNÁ. Dřív se dopočítávala z viewportu (FIELD_H = cssH / scale), takže
 // každý displej hrál na jinak dlouhém hřišti — a s nakloněnou kamerou by se svislá osa
 // stlačila a délka hřiště by se tím tiše změnila znovu. Hodnota vychází z toho, co dosavadní
