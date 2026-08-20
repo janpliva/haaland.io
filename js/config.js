@@ -98,11 +98,11 @@ export const TUNABLES = [
   // to kontrola, proti které se všechno měří. Nad 100 se ořízne šířka (kamera stojí na středu),
   // takže přiblížení se platí krajními pruhy hřiště — čísla jsou v PR.
   // POZOR na strop: aby bylo vidět aspoň 60 % délky hřiště, smí camZoom na 375×812 nejvýš 199.
-  { key:'camZoom',       def:140,  min:100, max:220,  step:5,   label:'Přiblížení kamery (%)',       group:'Kamera' },
+  { key:'camZoom',       def:120,  min:100, max:220,  step:5,   label:'Přiblížení kamery (%)',       group:'Kamera' },
   { key:'camFollow',     def:100,  min:0,   max:100,  step:5,   label:'Sledování míče (%)',          group:'Kamera' },
   // Časová konstanta dojezdu, ne rychlost: kamera ujede za camSmooth ms 63 % zbývající
   // odchylky, ať běží hra na jakémkoliv snímkování.
-  { key:'camSmooth',     def:350,  min:50,  max:1500, step:25,  label:'Plynulost kamery (ms)',       group:'Kamera' },
+  { key:'camSmooth',     def:650,  min:50,  max:1500, step:25,  label:'Plynulost kamery (ms)',       group:'Kamera' },
   // Předvídání: kolik procent VTEŘINY pohybu míče se přičte k cíli. 25 % = kamera míří tam,
   // kde míč bude za čtvrt vteřiny.
   { key:'camLookAhead',  def:25,   min:0,   max:100,  step:5,   label:'Předvídání pohybu (%)',       group:'Kamera' },
