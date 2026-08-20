@@ -34,8 +34,8 @@ export const MATCH_TIMES = [60, 180, 300];   // sekundy
 
 export const TUNABLES = [
   // Kolik hráčů v poli; brankář se do počtu nepočítá. Změna rozehraje nový zápas.
-  { key:'teamSize',      def:5,    min:1,   max:6,    step:1,   label:'Hráčů v mém týmu',            group:'Týmy', rebuild:true },
-  { key:'foeSize',       def:5,    min:1,   max:6,    step:1,   label:'Hráčů v týmu soupeře',        group:'Týmy', rebuild:true },
+  { key:'teamSize',      def:6,    min:1,   max:6,    step:1,   label:'Hráčů v mém týmu',            group:'Týmy', rebuild:true },
+  { key:'foeSize',       def:6,    min:1,   max:6,    step:1,   label:'Hráčů v týmu soupeře',        group:'Týmy', rebuild:true },
 
   // Jedna základní rychlost pro všechny. Rozdíl mezi hráči i mezi týmy dělá hodnocení
   // `speed` (viz STAT_SCALE níž), ne druhá konstanta — tím zmizí celá třída tichých
@@ -48,7 +48,7 @@ export const TUNABLES = [
   // Driblink je FYZIKÁLNÍ: při kontaktu se míč kopne rychlostí v + touchPush*m, pak se sám
   // kutálí a brzdí třením, zatímco držitel automaticky běží NA MÍČ rychlostí v. Cyklus končí
   // tím, že ho tělem dostihne — je to výsledek vzdálenosti, ne odpočet.
-  { key:'touchPush',       def:100, min:0,   max:600, step:10,  label:'Síla předkopu',               group:'Míč' },
+  { key:'touchPush',       def:300, min:0,   max:600, step:10,  label:'Síla předkopu',               group:'Míč' },
   // Mezi kontakty stick směr ani rychlost nemění — to je ta zavázanost. 0 = plný zámek,
   // 100 = stick působí průběžně.
   { key:'chaseSteer',      def:0,   min:0,   max:100, step:5,   label:'Ovládání během doběhu (%)',   group:'Míč' },
