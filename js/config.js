@@ -9,6 +9,14 @@ export const GOAL_DEPTH = 60;          // jen vykreslení brankoviště, nemá v
 export const STEAL_LOCK = 0.5;         // po odebrání si původní držitel nemůže hned vzít míč zpět
 export const SETTLE = 0.3;             // než AI po zisku míče smí kopnout — jinak odpaluje z první
 
+// Pod touhle svislou rychlostí (j/s) se míč po odrazu přestane odrážet a přejde do kutálení.
+// SCHVÁLNĚ to není tunable: není to nastavení hry, ale mez, pod kterou se odraz nedá vidět —
+// při gravitaci 1400 vyskočí takový odraz o 1,3 jednotky a trvá 86 ms. Zároveň je to pojistka
+// proti dělení snímku na nekonečně mnoho odrazů: po odrazu je let dlouhý 2*vz/gravitace, tedy
+// nejmíň 2*60/3000 = 0,04 s, což je víc než strop dt (0,033 s) — v jednom snímku proto nikdy
+// nemůžou padnout dva dopady.
+export const BOUNCE_STOP = 60;
+
 export function dirOf(team){ return team === 'b' ? -1 : 1; }   // kterým směrem tým útočí
 
 // Délky zápasu na čas, v sekundách. SCHVÁLNĚ to není tunable: tohle se nehledá posuvníkem
@@ -40,6 +48,22 @@ export const TUNABLES = [
   // toho cuknutí; skutečná rychlost vychází z toho, co si zásah opravdu žádá.
   { key:'lungeSpeed',      def:50, min:10, max:500, step:10,  label:'Rychlost cuknutí pro zpracování (%)', group:'Míč' },
   { key:'friction',      def:400,  min:80,  max:700,  step:10,  label:'Tření míče',                  group:'Míč' },
+
+  // Míč má výšku (z) a svislou rychlost (vz). Ve vzduchu na něj NEplatí tření — brzdí ho
+  // slabší odpor vzduchu — a nikdo si na něj nesmí sáhnout: nedá se driblovat, odebrat ani
+  // zpracovat, dokud nedosedne. Při dopadu se odrazí (svisle bounceKeep, vodorovně bounceDrag)
+  // a každý další odraz je nižší a kratší, dokud svislá rychlost nespadne pod BOUNCE_STOP.
+  // Výjimka je brankář: ten chytá i míč nad zemí, protože přesně to brankář dělá.
+  { key:'gravity',       def:1400, min:400, max:3000, step:50,  label:'Gravitace',                   group:'Míč vzduchem' },
+  { key:'bounceKeep',    def:45,   min:0,   max:80,   step:5,   label:'Odraz od země (%)',           group:'Míč vzduchem' },
+  { key:'bounceDrag',    def:80,   min:40,  max:100,  step:5,   label:'Brzdění při dopadu (%)',      group:'Míč vzduchem' },
+  { key:'airDrag',       def:40,   min:0,   max:300,  step:10,  label:'Odpor vzduchu',               group:'Míč vzduchem' },
+  { key:'liftAngle',     def:38,   min:15,  max:60,   step:1,   label:'Úhel vzletu (°)',             group:'Míč vzduchem' },
+  // Padající míč se hůř zpracuje než kutálející se: první dotek je delší, a to úměrně tomu,
+  // jak rychle míč padal. Tohle je podíl svislé rychlosti dopadu, který se přičte k předkopu —
+  // stejná role, jakou v pozemním cyklu hraje touchPush. Zadání pro tenhle dotek číslo nedalo,
+  // takže je z něj posuvník a hodnota se najde hraním, ne odhadem.
+  { key:'airTouch',      def:30,   min:0,   max:120,  step:5,   label:'Zpracování padajícího míče (%)', group:'Míč vzduchem' },
 
   // Síla přihrávky se odvíjí od toho, jak daleko za prahem zvedneš prst.
   { key:'passSpeed',     def:800,  min:300, max:1100, step:20,  label:'Síla přihrávky',              group:'Přihrávka' },

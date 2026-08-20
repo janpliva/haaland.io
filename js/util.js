@@ -1,5 +1,5 @@
 // Geometrie, „kdo je kdo" a náběh na míč. Vrstva nad state, pod AI.
-import { T, FIELD_W, PH, CONTACT, dirOf, stat } from './config.js';
+import { T, FIELD_W, PH, CONTACT, BOUNCE_STOP, dirOf, stat } from './config.js';
 import { S, E, ball, dist, clampField, hooks, histAt, locked } from './state.js';
 
 export { dist, clampField };          // ať je zbytek kódu bere z jednoho místa
@@ -209,12 +209,174 @@ export function laneClear(p, tx, ty, rad){
 }
 export function rollDist(v){ return v*v / (2*Math.max(1, T.friction)); }   // kam až míč dojede
 
+// ---- míč ve vzduchu ----
+// Míč nese výšku z a svislou rychlost vz. Ve vzduchu ho vodorovně brzdí airDrag místo tření
+// a nikdo si na něj nesmí sáhnout, dokud nedosedne (brankář je výjimka, ta je v main.js).
+export function airborne(){ return ball.z > 0 || ball.vz !== 0; }
+
+// ODVOZENÍ DOSTŘELU. Vzdušný kop rychlostí v pod úhlem a se rozloží na vodorovnou v*cos(a)
+// a svislou v*sin(a). Svisle je to vrh: výška z(t) = v*sin(a)*t - g*t²/2, takže
+//     doba letu   T = 2*v*sin(a) / g
+//     vrchol      h = (v*sin(a))² / (2*g)
+// Vodorovně míč brzdí odporem vzduchu (lineárně, jako tření po zemi), takže za dobu letu ujede
+//     R = v*cos(a)*T - airDrag*T²/2          (a bez odporu vzduchu klasické R = v²*sin(2a)/g)
+// Síla přihrávky tak řídí dolet stejně, jako řídí dojezd pozemní přihrávky — jen jinou funkcí.
+// Za dopadem to nekončí: míč se odráží dál, viz airProfile.
+export function airFlightT(v){ return 2*v*Math.sin(T.liftAngle*Math.PI/180) / Math.max(1, T.gravity); }
+export function airApex(v){
+  var vz = v*Math.sin(T.liftAngle*Math.PI/180);
+  return vz*vz / (2*Math.max(1, T.gravity));
+}
+export function airRange(v){
+  var t = airFlightT(v);
+  return Math.max(0, v*Math.cos(T.liftAngle*Math.PI/180)*t - 0.5*T.airDrag*t*t);
+}
+
+// dráha při konstantním brzdění za čas dt, useknutá v okamžiku zastavení
+function travel(v, a, dt){
+  var td = a > 0 ? Math.min(dt, v/a) : dt;
+  return v*td - 0.5*a*td*td;
+}
+
+// Rozpis celého zbývajícího letu na úseky s konstantním brzděním: každý let (odpor vzduchu) až
+// po dopad, a nakonec jeden úsek kutálení (tření), až se doskáče. Odrazy jen ŠKÁLUJÍ rychlost,
+// směr se nemění, takže stačí skalární dráha po jedné přímce — přesně to zjednodušení, jaké
+// ballAtT dělá po zemi (mantinely se taky neuvažují).
+// Z tohohle jednoho modelu čte nárok, náběh i brankář, takže se nikde neliší, kam míč dopadne.
+// Rozpis se drží v cache klíčované celým stavem míče a všemi posuvníky, které do něj sahají:
+// nárok i náběh se na něj v jednom snímku ptají stokrát, ale míčem se hne až na konci step().
+var apKey = null, apSegs = null;
+function airProfile(){
+  var g = Math.max(1, T.gravity);
+  if(apKey && apKey[0] === ball.vx && apKey[1] === ball.vy && apKey[2] === ball.z &&
+     apKey[3] === ball.vz && apKey[4] === g && apKey[5] === T.bounceKeep &&
+     apKey[6] === T.bounceDrag && apKey[7] === T.airDrag && apKey[8] === T.friction &&
+     apKey[9] === ball.x && apKey[10] === ball.y) return apSegs;
+  var sp = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+  var z = ball.z, vz = ball.vz, t = 0, s = 0, segs = [];
+  for(var i=0; i<24 && (z > 0 || vz > 0); i++){
+    var tl = (vz + Math.sqrt(Math.max(0, vz*vz + 2*g*z)))/g;    // z(t)=0 → čas do dopadu
+    if(!(tl > 0)) break;
+    segs.push({ t:t, s:s, v:sp, a:T.airDrag, dur:tl });
+    s += travel(sp, T.airDrag, tl); sp = Math.max(0, sp - T.airDrag*tl);
+    t += tl;
+    var hit = vz - g*tl;                                        // svislá rychlost při dopadu
+    z = 0; vz = -hit*(T.bounceKeep/100); sp *= T.bounceDrag/100;
+    if(vz < BOUNCE_STOP) vz = 0;                                // doskákáno, dál se kutálí
+  }
+  segs.push({ t:t, s:s, v:sp, a:T.friction, dur: sp/Math.max(1, T.friction) });
+  apKey = [ball.vx, ball.vy, ball.z, ball.vz, g, T.bounceKeep, T.bounceDrag, T.airDrag, T.friction,
+           ball.x, ball.y];
+  apSegs = segs;
+  return segs;
+}
+// čas do nejbližšího dosednutí — do té doby si na míč nikdo nesáhne
+export function airLandingT(){ var s = airProfile(); return s.length > 1 ? s[0].dur : 0; }
+// čas, než se míč úplně zastaví (včetně všech odrazů)
+export function ballRestT(){
+  if(!airborne()) return Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy)/Math.max(1, T.friction);
+  var s = airProfile(), last = s[s.length-1];
+  return last.t + last.dur;
+}
+function airAtT(t){
+  var sp = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+  var ux = sp > 0.001 ? ball.vx/sp : 0, uy = sp > 0.001 ? ball.vy/sp : 0;
+  var segs = airProfile(), k = 0;
+  while(k < segs.length-1 && t > segs[k].t + segs[k].dur) k++;
+  var g = segs[k], dt = Math.max(0, t - g.t);
+  if(k < segs.length-1) dt = Math.min(dt, g.dur);               // poslední úsek si travel usekne sám
+  var s = g.s + travel(g.v, g.a, dt);
+  return { x: ball.x + ux*s, y: ball.y + uy*s };
+}
+
+// Vodorovný pohyb míče při konstantním brzdění, jeden snímek. Ve vzduchu se sem posílá odpor
+// vzduchu, po zemi tření — jinak je to jeden a týž krok, aby se ta dvě prostředí nedala
+// rozejít omylem. Pořadí (nejdřív ubrat rychlost, pak posunout) je to původní, znak po znaku.
+export function rollBall(dt, decel){
+  var sp = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+  if(sp > 0){
+    var ns = Math.max(0, sp - decel*dt);
+    ball.vx = ball.vx/sp*ns; ball.vy = ball.vy/sp*ns;
+  }
+  ball.x += ball.vx*dt; ball.y += ball.vy*dt;
+}
+
+// Kdo je právě u míče a smí si ho vzít: nejbližší nezamčený hráč do vzdálenosti CONTACT.
+// `air` = míč je nad zemí, a tam smí sáhnout JEN brankář.
+export function takerAt(x, y, air){
+  var taker = null, takeD = 1e9;
+  for(var k=0;k<E.all.length;k++){
+    var p = E.all[k];
+    if(locked(p)) continue;
+    if(air && p.role !== 'gk') continue;
+    var dx = p.x - x, dy = p.y - y, pd = Math.sqrt(dx*dx + dy*dy);
+    if(pd <= CONTACT && pd < takeD){ takeD = pd; taker = p; }
+  }
+  return taker;
+}
+
+// Jeden snímek míče ve vzduchu: vodorovně brzdí odpor vzduchu, svisle táhne gravitace.
+// Dopad se řeší PŘESNĚ v okamžiku, kdy nastane, ne až na konci snímku — jinak by chvíle,
+// kdy je míč na zemi (a jde zpracovat), padla mezi snímky a míč by se dal chytit jen náhodou.
+//   - je u dopadu někdo, kdo si ho smí vzít? → míč zůstane ležet přesně tam a zbytek snímku
+//     se neintegruje; převzetí a delší první dotek obstará step() ještě v tomhle snímku
+//   - není? → odrazí se (svisle bounceKeep, vodorovně bounceDrag) a letí dál. Každý další
+//     odraz je nižší a kratší; pod BOUNCE_STOP se přestane odrážet a jen se kutálí.
+// Dva dopady v jednom snímku nastat nemůžou: po odrazu je let dlouhý aspoň 2*BOUNCE_STOP/gravitace
+// = 0,04 s, což je víc než strop dt.
+export function airStep(dt){
+  var g = Math.max(1, T.gravity), rest = dt;
+  for(var i=0; i<8 && rest > 1e-9; i++){
+    var tl = (ball.vz + Math.sqrt(Math.max(0, ball.vz*ball.vz + 2*g*ball.z)))/g;
+    // Není kam letět (na zemi a nic ho nezvedá) — usaď a zbytek snímku se kutálej. Do tohohle
+    // stavu se to dostane leda po nedokončeném převzetí; bez tý větve by míč zůstal viset.
+    if(!(tl > 0)){ ball.z = 0; ball.vz = 0; rollBall(rest, T.friction); return; }
+    var seg = Math.min(rest, tl);
+    rollBall(seg, T.airDrag);
+    ball.z = Math.max(0, ball.z + ball.vz*seg - 0.5*g*seg*seg);
+    ball.vz -= g*seg;
+    rest -= seg;
+    if(seg < tl) return;                       // snímek skončil ještě v letu
+    ball.z = 0;
+    // Míč je v tomhle okamžiku na zemi. Když u něj někdo je, zůstane ležet: vz si nechává
+    // (záporné), protože z něj bere sílu prvního doteku ten, kdo ho přebírá.
+    if(takerAt(ball.x, ball.y, false)) return;
+    ball.vz = -ball.vz * (T.bounceKeep/100);
+    ball.vx *= T.bounceDrag/100; ball.vy *= T.bounceDrag/100;
+    if(ball.vz < BOUNCE_STOP){                 // doskákal — zbytek snímku se už jen kutálí
+      ball.vz = 0;
+      rollBall(rest, T.friction);
+      return;
+    }
+  }
+}
+
+// Delší první dotek po padajícím míči. Je to obyčejný předkop, jen síla nejde z touchPush, ale
+// z toho, jak rychle míč padal — proto se padající míč hůř zpracuje než kutálející se. Zbytek
+// (doběh na míč, konvergence, pojistka na mezeru) je pak přesně ten pozemní cyklus.
+export function airFirstTouch(o, drop){
+  var m = o.bsf || 0, v = speedOf(o)*m;
+  var rel = drop * (T.airTouch/100);
+  var sp = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+  var nx = sp > 0.001 ? ball.vx/sp : o.fx, ny = sp > 0.001 ? ball.vy/sp : o.fy;
+  ball.held = false;
+  ball.chaseV = v;
+  ball.chaseM = m;
+  ball.vx = nx*(v + rel); ball.vy = ny*(v + rel);
+  ball.z = 0; ball.vz = 0;
+  ball.peakGap = CONTACT + rel*rel/(2*Math.max(1, T.friction));
+}
+
 // ---- náběh na míč: kam se míč dokutálí a kde ho jde nejdřív zastihnout ----
 // míč zpomaluje konstantně o T.friction, takže dráha za čas t je analytická
 // Nepovinné `b` je POHLED na míč (poloha + rychlost); bez něj se počítá z živého ball.
 // Slouží jen presinku se zpožděním — vlastní polohu hráče nikdo nezpožďuje.
 export function ballAtT(t, v0, b){
   b = b || ball;
+  // Míč ve vzduchu se počítá přes rozpis letu (airProfile): let, dopad, odraz, nakonec kutálení.
+  // Zpožděný pohled `b` se sem nikdy nedostane — ten se dělá jen na DRŽENÝ míč a držený míč
+  // ve vzduchu být nemůže.
+  if(b === ball && airborne()) return airAtT(t);
   if(v0 < 0.001) return { x:b.x, y:b.y };
   var tStop = v0 / T.friction;
   var s = t < tStop ? v0*t - 0.5*T.friction*t*t : v0*v0/(2*T.friction);
@@ -248,10 +410,14 @@ function reachIn(p, q, t, sp, acc, eff){
 export function interceptSolve(p, b){
   b = b || ball;
   var v0 = Math.sqrt(b.vx*b.vx + b.vy*b.vy);
-  if(v0 < 0.001) return { x:b.x, y:b.y, t: dist(p, b)/Math.max(1, speedOf(p)) };
-  var tStop = v0 / T.friction, eff = T.interceptEff/100, sp = speedOf(p);
+  var air = b === ball && airborne();
+  if(v0 < 0.001 && !air) return { x:b.x, y:b.y, t: dist(p, b)/Math.max(1, speedOf(p)) };
+  // Ve vzduchu se nehledá od nuly, ale od DOPADU: dřív se s míčem nedá dělat nic, takže bod
+  // pod letícím míčem není žádný zásah. Po zemi zůstává začátek na nule, tedy přesně jako dřív.
+  var t0 = air ? airLandingT() : 0;
+  var tStop = air ? ballRestT() : v0 / T.friction, eff = T.interceptEff/100, sp = speedOf(p);
   var acc = T.accelTime > 0 ? sp/(stat(p, 'accelTime')/1000) : 0;
-  for(var t=0; t<=tStop+1.5; t+=0.05){
+  for(var t=t0; t<=tStop+1.5; t+=0.05){
     var q = ballAtT(t, v0, b);
     // hráč se neotočí okamžitě, takže nepočítá s plnou rychlostí
     if(dist(p, q) <= reachIn(p, q, t, sp, acc, eff)) return { x:q.x, y:q.y, t:t };
@@ -328,13 +494,18 @@ export function lungeActive(p){
 export function lungeSolve(p){
   var cap = speedOf(p)*stat(p, 'lungeSpeed')/100;
   var v0 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
-  if(v0 < 0.001){                       // ležící míč si prostě dojdi normální rychlostí
+  var air = airborne();
+  if(v0 < 0.001 && !air){               // ležící míč si prostě dojdi normální rychlostí
     var d0 = Math.max(0, dist(p, ball) - CONTACT);
     return { ok: true, x:ball.x, y:ball.y, t: d0/Math.max(1, speedOf(p)), need: speedOf(p) };
   }
-  var tStop = v0/T.friction, tMax = tStop + 0.5;
+  // Ve vzduchu se nárok počítá od DOPADU: hráč běží tam, kde míč dosedne, a dřív si na něj
+  // stejně nesáhne. Když se mezitím odrazí, hledá se dál i po odrazech — tak vyjde, že nejlevnější
+  // je počkat si na ten dopad, ke kterému to má nejblíž.
+  var tStop = air ? ballRestT() : v0/T.friction, tMax = tStop + 0.5;
+  var t0 = air ? Math.max(1/60, airLandingT()) : 1/60;
   var bestNeed = 1e9, bx = ball.x, by = ball.y, bt = tMax;
-  for(var t=1/60; t<=tMax; t+=1/60){
+  for(var t=t0; t<=tMax; t+=1/60){
     var b = ballAtT(t, v0);
     var need = Math.max(0, dist(p, b) - CONTACT)/t;
     if(need < bestNeed){ bestNeed = need; bx = b.x; by = b.y; bt = t; }
@@ -342,8 +513,14 @@ export function lungeSolve(p){
   return { ok: bestNeed <= cap, x:bx, y:by, t:bt, need:bestNeed };
 }
 // projde dráha míče vůbec dosahem zpracování toho hráče?
+// Ve vzduchu se dráha bere až OD DOPADU: nad zemí je míč nedotknutelný, takže o nárok
+// rozhoduje, kudy povede po zemi, ne kudy letí.
 export function ballPathHits(p){
   var v0 = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+  if(airborne()){
+    var a = ballAtT(airLandingT(), v0), b = ballAtT(ballRestT(), v0);
+    return segDist(p.x, p.y, a.x, a.y, b.x, b.y) < pickupOf(p);
+  }
   var e = ballAtT(v0/Math.max(1, T.friction), v0);
   return segDist(p.x, p.y, ball.x, ball.y, e.x, e.y) < pickupOf(p);
 }
@@ -474,7 +651,11 @@ export function speedForDistance(p, d){
 // z kickPlan (nabíjí se v okamžiku rozhodnutí), lidská přihrávka ji dostává AŽ TADY, když
 // míč doopravdy odlétá — zelená linka tak dál ukazuje, kam se mířilo, a chybu dopředu
 // nevidíš. Při nulové nepřesnosti se ani nelosuje, aby se nehnul proud náhod.
-export function doPass(dx, dy, speed, by){
+// `air` = odehrát obloukem. Kop rychlostí v se rozloží podle liftAngle na vodorovnou složku
+// v*cos a svislou v*sin (odvození dostřelu je u airRange výš), takže se silou přihrávky mění
+// dolet stejně jako u pozemní. Přízemní přihrávka výšku i svislou rychlost výslovně nuluje —
+// míč u nohy je vždycky na zemi, takže se tím nic nemění, jen se to nedá rozbít jinudy.
+export function doPass(dx, dy, speed, by, air){
   var d = Math.sqrt(dx*dx+dy*dy); if(d < .001) return;
   if(by){
     var err = stat(by, 'foeError') * Math.PI/180;
@@ -488,7 +669,15 @@ export function doPass(dx, dy, speed, by){
   ball.held = false;                             // přihrávka končí cyklus, rychlost dá kop níž
   ball.owner = null;
   // míč se odehrává z místa, kde reálně leží — nikam se neteleportuje
-  ball.vx = dx/d*v; ball.vy = dy/d*v;
+  if(air){
+    var a = T.liftAngle*Math.PI/180;
+    ball.vx = dx/d*v*Math.cos(a); ball.vy = dy/d*v*Math.cos(a);
+    ball.z = 0; ball.vz = v*Math.sin(a);
+  } else {
+    ball.vx = dx/d*v; ball.vy = dy/d*v;
+    ball.z = 0; ball.vz = 0;
+  }
+  ball.airLand = 0;
   S.lockedPlayer = carrier; S.lockOut = 0.32; S.lastTeam = carrier.team;
   pickChasers();                        // změna držení → nový závazek, kdo si pro míč jde
   // ovládání zůstává na přihrávajícím, dokud míč někdo nepřevezme

@@ -22,10 +22,20 @@ export const S = {
   deadTime:0, roleTimer:0, lastCarrier:null, drawAim:null,
   // odkud se míří a kdo míč podle nároku zpracuje jako první (jednodotyková přihrávka)
   aimFrom:null, recv:null,
+  // Vzdušný režim: nachystaná přihrávka odletí obloukem, ne po zemi. Přepíná se zvednutím
+  // prstu BEZ přihrávky (viz input.js) a platí na jedno držení míče — airBy je hráč, kterému
+  // se to nabilo, takže ztráta míče režim shodí.
+  airMode:false, airBy:null,
   cssW:0, cssH:0, scale:1, FIELD_H:2000
 };
 
 export const ball = { x:0, y:0, vx:0, vy:0, owner:null, gained:0,
+                      // výška nad hřištěm a svislá rychlost. z > 0 (nebo vz != 0) znamená
+                      // „ve vzduchu": platí jiná fyzika a nikdo kromě brankáře si na míč
+                      // nesáhne. Míč u nohy má obojí nulové, takže pozemní hra jede přesně
+                      // jako dřív — všechny vzdušné větve se ani nespustí.
+                      z:0, vz:0,
+                      airLand:0,                   // svislá rychlost dopadu, který se právě zpracovává
                       // cyklus doteku: míč je pořád obyčejná fyzika, nikdy přilepený
                       held:false,                  // držitel stojí, míč leží u nohy
                       chaseV:0,                    // rychlost doběhu držitele pro tenhle cyklus
@@ -38,7 +48,10 @@ export const ball = { x:0, y:0, vx:0, vy:0, owner:null, gained:0,
                       chaseDir:{ x:0, y:0 } };     // směr míče při posledním výběru, na odhalení odrazu
 
 export const joyBase = { x:0, y:0 };
-export const touch = { active:false, id:null, x:0, y:0, fire:null };
+// `fire` = puštěno za prahem, tedy přihrávka. `lift` = puštěno uvnitř prahu, tedy přepnutí
+// vzdušného režimu. Obojí se jen zaznamená a vyhodnotí se až ve step(), aby veškerá změna
+// stavu zůstala v simulaci a nic se nedělo v pauze.
+export const touch = { active:false, id:null, x:0, y:0, fire:null, lift:false };
 
 // Entity se v buildTeams přepisují celé, takže musí viset na kontejneru.
 export const E = { blue: [], red: [], all: [], gkB: null, gkR: null };
@@ -216,6 +229,7 @@ export function reset(kickTeam){
   ball.vx = ball.vy = 0; ball.owner = starter; ball.gained = S.time;
   ball.pending = null; ball.held = true; ball.chaseV = 0; ball.chaseM = 0; ball.peakGap = CONTACT;
   ball.claim = null;
+  ball.z = 0; ball.vz = 0; ball.airLand = 0;      // výkop se rozehrává po zemi, ne z letu
   ball.x = starter.x + starter.fx*CONTACT;
   ball.y = starter.y + starter.fy*CONTACT;
   S.lastTeam = kickTeam;
@@ -224,5 +238,7 @@ export function reset(kickTeam){
   E.all.forEach(function(p){ p.rush = false; p.rushT = 0; });
   histClear();                // po přestavení pozic je stará paměť lež, ne zpoždění
   touch.fire = null;          // ať nabitá přihrávka nepřeteče do dalšího pokusu
+  touch.lift = false;
+  S.airMode = false; S.airBy = null;   // vzdušný režim platí na jedno držení míče
   hooks.pickChasers();
 }

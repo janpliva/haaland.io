@@ -22,6 +22,24 @@ Things noticed in passing and deliberately left alone. Delete a line when it is 
 - **The gap guard** (`S.gapWarn` / `S.gapWarnLog`) has never fired. If it ever does, the log carries the state that produced it — that is the whole reason it is there.
 - **AI distances are absolute field units** tuned for portrait: marking standoff, separation and wobble never scaled when `FIELD_W` went from 600 to 1200.
 
+## Worth a look, from the ball-height milestone
+
+- **Aerial passes above minimum power are collected by the kicker's team 26 % of the time**,
+  against 37–59 % for ground passes of the same power aimed the same way. That is the intended
+  cost (untouchable in flight, lands further out, longer first touch), but if it reads as
+  simply throwing the ball away, `airTouch`, `bounceDrag` and `liftAngle` are the three knobs.
+- **The goal has no height**, so a lob between the posts always scores. No crossbar was added
+  — it needs a design answer first (what does hitting it do, with no throw-ins or goal kicks
+  in the game). See §7.
+- **The aerial aim arc bows perpendicular to the aim**, because a truthful top-down projection
+  of a lofted pass aimed straight up the screen is a straight line. If a camera tilt lands
+  later, that glyph should go back to being the real projection.
+- **`airProfile` is cached on the ball's own numbers**, which is exact because the ball only
+  moves at the end of `step()`. If anything ever moves the ball mid-frame, that cache is the
+  first thing to check.
+- **The lift-holds-intent rule is carrier-only.** Off the ball, lifting still stops the
+  player. One line in `step()` if that should be the same in both cases.
+
 ## Documentation drift to watch
 
 - PROJECT_CONTEXT.md and CLAUDE.md were rewritten after the physical touch cycle landed. Both now describe the code as of the reception-freeze fix. The dribble model has been replaced four times — check these two files against the code before trusting them.

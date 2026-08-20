@@ -21,6 +21,10 @@ The ball is always physically simulated and never attached to anyone. Dribbling 
 real kicks: you knock it ahead, it rolls under friction, and your player automatically runs at
 it until his body reaches it — and that contact is the only moment your input reaches the ball.
 
+The ball also has **height**. A pass can be played along the ground or lofted, and a ball in
+the air is untouchable — it flies over everyone and bounces when it lands. The renderer is
+still flat 2D top-down; height is drawn as the gap between the ball and its shadow.
+
 There are goals at both ends, a keeper each, and a scoreline. A match runs in one of two
 modes, chosen on the home screen: **na góly** (first to `targetGoals`) or **na čas** (the
 clock decides, and a level score at full time goes to a golden goal). A shot is just a pass —
@@ -90,9 +94,22 @@ and strength, not give away where the ball lands. The dash period is fixed, so t
 dots is the strength readout — and it is the only feedback for power, because the knob stays
 clamped to the ring. It draws a straight line, so it ignores wall bounces.
 
-Coming back inside the outer ring without lifting cancels the charge; releasing inside does
-nothing. The state is memoryless — "is the thumb currently outside the ring" is the whole
-condition, so no flag tracks the crossing.
+Coming back inside the outer ring without lifting cancels the charge; releasing inside the
+ring no longer does nothing — it **toggles aerial mode** (see "The ball has height"). The
+charge state itself is still memoryless: "is the thumb currently outside the ring" is the
+whole condition, so no flag tracks the crossing.
+
+**Lifting the thumb no longer stops the carrier.** It used to: the buffered stick magnitude
+went to 0 and the next contact held the ball at his feet. Now, while the controlled player
+owns the ball and the thumb is up, the buffered intent from the last frame with the thumb
+down is kept instead of being overwritten, so he keeps running at the speed and direction of
+his last touch. The reason is the aerial toggle: that gesture is a lift, and a lift that also
+stopped him would make arming aerial mode cost a stopped run every time. Stopping is
+unchanged and still available — bring the thumb back to the **centre** of the joystick
+without lifting, the stick magnitude goes to 0, and he stops at the next contact. Measured:
+after centring, `ball.held` at 133 ms, standstill at 167 ms, 30.6 units travelled, ball kept.
+After a lift, the same carrier covers 200 units in the next second at full speed. Without the
+ball nothing changed — a lift there still stops him, and there is no mode to toggle.
 
 Why: the commit moment is the release, which the thumb can always take back, so the
 direction stays adjustable right up to the last instant instead of being locked in by the
@@ -440,6 +457,158 @@ who is going to collect it.
 - **Contact takes the ball** — any eligible player within `CONTACT`, not only the claimer, so
   a body in the way collects it.
 
+### The ball has height
+`ball.z` is height above the pitch and `ball.vz` the vertical speed; `airborne()` is
+`z > 0 || vz !== 0`. A ball at someone's foot has both at zero, so **every aerial branch is
+skipped in ground play** and the game is bit-identical to before the feature — verified below.
+
+**Flight.** Gravity pulls `vz` down every frame. Horizontally an airborne ball is braked by
+`airDrag`, not by `friction`, using the same one-frame integrator (`rollBall`) so the two
+environments cannot drift apart by accident. Walls still bounce it and the goal still takes
+it — the goal has **no height**, so a lob between the posts scores whatever `z` is.
+
+**Untouchable in the air.** A ball with `z > 0` cannot be dribbled, tackled or collected: it
+flies over everyone. The only exception is a **keeper**, who may catch or parry an airborne
+ball inside his normal reach, because that is what a keeper does. Structurally this is one
+line — the loose-ball takeover asks `takerAt(x, y, ball.z > 0)` and the airborne form of that
+filter admits only `role === 'gk'`. An owned ball is never airborne, so the steal check and
+the dribble need no aerial case at all. Measured over 66 640 frames of scripted aerial play:
+**0** frames with an airborne ball owned by anyone, and 301 frames where an outfielder stood
+inside `CONTACT` of an airborne ball and it passed over him untouched.
+
+**Launch, and the range derivation.** An aerial kick of speed `v` is split by `liftAngle`
+(`a`) into `v·cos a` horizontal and `v·sin a` vertical, which is a plain projectile:
+
+```
+flight time  T = 2·v·sin a / g
+apex         h = (v·sin a)² / (2·g)
+range        R = v·cos a·T − airDrag·T²/2      (airDrag 0 → the classic v²·sin 2a / g)
+```
+
+So pass power controls aerial range the way it already controls ground roll — by a different
+function of the same `v`. At defaults (38°, g 1400, airDrag 40), derivation against
+measurement through the real `doPass` and the real integrator:
+
+| power | v | R derived | R measured | apex derived | apex measured | flight derived/measured |
+|---|---|---|---|---|---|---|
+| min (on the ring) | 320 | 69.4 | 69.3 | 13.9 | 13.8 | 0.281 / 0.281 s |
+| medium | 560 | 212.5 | 212.3 | 42.5 | 42.4 | 0.493 / 0.493 s |
+| full | 800 | 433.7 | 433.4 | 86.6 | 86.6 | 0.704 / 0.704 s |
+
+The ≤0.3-unit gap is the horizontal integrator: the derivation is analytic, the simulation
+steps Euler once a frame, exactly as the ground roll always has.
+
+**Bounces.** On landing `vz` reverses and is scaled by `bounceKeep`, and the horizontal
+velocity is scaled by `bounceDrag`. Below `BOUNCE_STOP` (60 units/s, a code constant, not a
+tunable) it stops bouncing and becomes an ordinary rolling ball. A full-power aerial kick that
+nobody collects:
+
+| bounce | t | apex | hop | total | \|vz\| landing | horiz after |
+|---|---|---|---|---|---|---|
+| 1 | 0.704 s | 86.6 | 433.4 | 433.4 | 492.5 | 481.3 |
+| 2 | 1.020 s | 17.5 | 150.4 | 583.9 | 221.6 | 374.8 |
+| 3 | 1.163 s | 3.5 | 53.0 | 636.9 | 99.7 | 294.1 |
+
+then it settles and rolls another 106.8, coming to rest **1.92 s and 743.7 units** from the
+kick. Across the power band (0 / 0.25 / 0.5 / 0.75 / 1): flight 69 / 131 / 212 / 313 / 433,
+2 / 2 / 3 / 3 / 3 bounces, at rest after 120 / 228 / 364 / 537 / 744 units — against a ground
+pass of the same power rolling 128 / 242 / 392 / 578 / 800. **It never stops dead on first
+contact.**
+
+**The landing moment is resolved inside the frame, not at its edge.** `airStep` integrates up
+to the exact instant `z` reaches 0 and asks `takerAt` there. Somebody in reach → the ball
+stays on the ground at that point and the ordinary takeover block collects it in the same
+frame. Nobody → it bounces and the rest of the frame is integrated on the new velocity. Doing
+this at frame granularity instead would put the only moment the ball is touchable *between*
+frames. Two landings in one frame are impossible: after a bounce the flight lasts at least
+`2·BOUNCE_STOP/gravity` = 0.04 s, longer than the 0.033 s `dt` cap.
+
+**One model answers "where will it come down".** `ballAtT` gets an airborne branch built on
+`airProfile()`, which lays the rest of the flight out as segments of constant deceleration —
+flight, landing, bounce, flight, … then one final rolling segment. Claim, intercept, chaser
+selection and the keeper's save point all read it, so they cannot disagree about the landing
+point. At launch the predictor says the first landing is at 433.7 (simulation: 433.4) and rest
+at 746.6 after 1.90 s (simulation: 743.7 after 1.92 s). `interceptSolve` and `lungeSolve` start
+their search at the **landing time** rather than 0 — a point under a flying ball is not an
+interception — which is exactly "the claim uses the predicted landing point, not the current
+position", and leaves the ground case starting at 0, character for character as before.
+
+**Collecting a dropping ball is worse than collecting a rolling one.** A ground reception
+stops the ball dead. A reception at a landing instead gives a **longer first touch**, scaled
+by the vertical landing speed: the push is `airTouch` % of `|vz|`, fed through the same
+derivation as `touchPush`, so the receiver then has to run onto his own touch.
+
+| landing \|vz\| | push | peak gap | for comparison |
+|---|---|---|---|
+| 176 (min power) | 53 | 29.4 | ground reception: 25.0 (dead stop) |
+| 332 (medium) | 100 | 38.4 | normal full-stick dribble touch: 37.5 |
+| 487 (full) | 146 | 52.3 | |
+
+A queued one-tap fires at that moment instead, exactly as on a ground reception — the contact
+block runs in the same frame as the takeover. Measured over 40 lofted balls with a one-tap
+armed in flight: 29 reached a receiver and **29 of 29 were played first time, 0 frames**
+between the reception and the ball leaving.
+
+**How often an aerial pass is actually collected.** Same scripted human, same seeds, same
+aiming policy, aerial vs ground, ~67 000 frames each. "Collected" = the kicker's own team
+takes the next possession.
+
+| power | aerial | ground |
+|---|---|---|
+| min | 74 % (54 kicks) | 71 % (76) |
+| medium | 26 % (50) | 59 % (74) |
+| full | 26 % (42) | 37 % (76) |
+| all | **44 % (146)** | **56 % (226)** |
+
+So aerial passes are **not** near-uncollectable, but they are clearly worse than ground ones
+above minimum power — which is the intended cost: the ball is untouchable in flight (nobody
+can shorten it), it lands further out, and the first touch is longer. Minimum power is a
+69-unit chip that barely leaves the foot, which is why it tracks the ground number.
+
+The AI never plays an aerial pass in this build (0 of 325 AI kicks were aerial); it receives
+them through the same claim and chase path as any other loose ball.
+
+**Keepers.** Aerial shots go through the existing detection and save path unchanged;
+`crossX` only needed a longer search horizon, because an airborne ball is not braked by
+friction. `parry` scales `vz` by `gkParryKeep` like the horizontal speed, so a parried lofted
+ball pops up and drops rather than continuing into the turf, and it is a no-op on a ground
+ball. The catch/parry threshold uses the **full** speed including `vz`, so a dropping ball
+that is barely moving across the ground still counts as fast. A keeper *catches* a dropping
+ball cleanly — the longer first touch is for outfielders only.
+
+Save rate, 400 trials per row, identical shooting positions for both kinds:
+
+| shot | ground | aerial |
+|---|---|---|
+| full power (800) | 56 % | 64 % |
+| — from 150–250 | 45 % | 47 % |
+| — from 250–325 | 56 % | 63 % |
+| — from 325–400 | 69 % | 84 % |
+| half power (560) | 83 % | 87 % |
+
+Aerial shots are **easier** to save, and increasingly so with distance, because they land
+short and lose pace on the bounce. Height buys nothing against the keeper, because the goal
+has no height and neither does his reach.
+
+**Drawing height in a flat top-down view.** The ball is drawn `z` above its real position and
+grows slightly with height, as if nearer the camera; a shadow ellipse is drawn at the true
+ground position under everything else, shrinking and fading as `z` rises. **The gap between
+ball and shadow is the actual cue** — the lifted ball alone is indistinguishable from a ball
+somewhere else. The `tackleR` ring is drawn only while the ball is on the ground: no ring
+means nobody can touch it.
+
+**Aerial mode is armed by a lift and shown two ways.** While the carrier is armed, a small
+orange arch is drawn above his head (clear of the ball at his foot), and the joystick's
+threshold ring and knob turn orange. Charging draws an orange dashed **arc** instead of the
+yellow straight line, its length computed exactly as the ground line's is (a fraction of the
+roll distance — indicative, not the landing point) and its bow equal to the real apex. The bow
+is drawn **perpendicular to the aim**, not toward the top of the screen: in a true top-down
+projection a pass aimed straight up the screen has its height and its direction on the same
+screen axis, so the honest projection degenerates into a straight line — and straight at the
+opposite goal is precisely the direction one lobs. The perpendicular bow is therefore a glyph,
+like the line's length already is. The ball in flight is still drawn honestly (offset by `z`,
+shadow below). A queued aerial pass keeps the armed-green colour but is drawn as the same arc.
+
 ### Passes are queued and fire at the next contact
 Because the ball is usually away from the foot, a pass cannot fire from where it lies.
 Releasing the joystick past the threshold stores direction and power on `ball.pending`;
@@ -448,6 +617,25 @@ the stick points at that later moment. Releasing again replaces it, an **opponen
 the ball clears it, and it expires `passQueueMax` after possession. AI kicks go through the
 same queue. Lifting the thumb does not stop the carrier mid-cycle: he is on the automatic
 chase, so the contact always arrives.
+
+`pending.air` is decided **at release**, not when it fires: you saw an orange arc, so that is
+what you get even if the mode changes before the contact. It is only ever set for a pass armed
+while you actually hold the ball — aerial mode is per-possession, so a one-tap armed on a ball
+in flight is always a ground pass.
+
+**Aerial mode is per-possession.** `S.airMode` is armed by lifting the thumb inside the ring
+while carrying, and `S.airBy` records who it was armed for; the moment `ball.owner` is anyone
+else — tackled, lost, or the aerial kick itself, which ends the possession — it clears. There
+is no time threshold on the toggle, and none is needed: under the new rule a lift no longer
+changes movement, so there is nothing for a threshold to disambiguate. The toggle is applied
+in `step()` via `touch.lift`, not in the event handler, for the same reason `touch.fire` is:
+no state changes while the game is paused.
+
+The cost of that is real and worth knowing: **any release inside the ring while carrying is a
+toggle**, including a release exactly *on* the ring, since firing needs `d > threshold`.
+Measured over 200 s of scripted play, 100 releases: with every release outside the ring, **0**
+toggles; with the pre-change "lift to stop" gesture mixed in every third cycle, 57 releases
+happened while carrying and **27** of them toggled the mode. Nothing else can cause one.
 
 ### One-tap: arming a pass while the ball is in flight
 A pass can also be armed while nobody owns the ball. The claim mechanism already knows who
@@ -647,9 +835,9 @@ one safe one. (This rationale is inferred from the code — the lane penalty
 ## 4. Architecture
 
 `index.html` (97) is a DOM shell, `styles.css` (281) the CSS, and the JS lives in `js/`:
-`config` (215), `state` (228), `store` (115), `util` (496), `ai-off` (121), `ai-def` (134),
-`ai-ball` (116), `keeper` (174), `match` (88), `input` (63), `render` (190), `ui` (63),
-`menu` (304), `main` (305).
+`config` (239), `state` (244), `store` (115), `util` (685), `ai-off` (121), `ai-def` (134),
+`ai-ball` (116), `keeper` (181), `match` (88), `input` (67), `render` (271), `ui` (63),
+`menu` (304), `main` (346).
 
 Imports run one way only: config → state → store → util → ai/keeper → match → input →
 render/ui → menu → main. Because module bindings are read-only, every value that is
@@ -677,6 +865,12 @@ tickClock / showClock          the clock, full time, the HUD    match.js
 input handlers                 touch + mouse → touch{}          input.js
 bufferInput                    stores intent, never moves       util.js
 startKick / holdBall           the touch cycle                  util.js
+rollBall                       one frame of horizontal braking  util.js
+airStep / airProfile           flight, landing, bounce, settle  util.js
+airFlightT / airApex / airRange the launch derivation            util.js
+airLandingT / ballRestT        when it lands, when it stops     util.js
+airFirstTouch                  longer touch on a dropping ball  util.js
+takerAt                        who may collect, ground vs air   util.js
 driveMove                      velocity ramp (momentum)         util.js
 carryChase                     carrier runs at the ball         util.js
 updateClaim / lungeSolve /
@@ -722,15 +916,19 @@ Players are 30×30 squares (`PH = 15` half-side), `BALL_R = 10`, so `CONTACT = 2
 Arrays: `E.blue`, `E.red`, `E.all`, plus `E.gkB` / `E.gkR`. Outfielders are numbered 1..n per
 team in `buildTeams`; the keeper is last in each list and carries `num` 0.
 
-`ball` carries the cycle and reception state alongside the physics: `held` (carrier stopped,
-ball at his feet), `chaseV` (his speed for this cycle), `chaseM` (the stick deflection sampled
-at contact and held for the whole cycle), `peakGap` (derived, for the guard), `gained` (when
-possession started), `claim` / `claimX` / `claimY` / `lungeNeed` (reception), `pending`
-(queued pass), `chaser` / `chaseDir` (who is committed to a loose ball).
+`ball` carries the cycle and reception state alongside the physics: `z` / `vz` (height and
+vertical speed — both 0 means on the ground and every aerial branch is skipped), `airLand`
+(the vertical landing speed of a drop being collected this frame, consumed by the contact
+block), `held` (carrier stopped, ball at his feet), `chaseV` (his speed for this cycle),
+`chaseM` (the stick deflection sampled at contact and held for the whole cycle), `peakGap`
+(derived, for the guard), `gained` (when possession started), `claim` / `claimX` / `claimY` /
+`lungeNeed` (reception), `pending` (queued pass, with `air`), `chaser` / `chaseDir` (who is
+committed to a loose ball).
 
 `S` holds `screen` (`'menu'` or `'game'`), `ctrl`, `time`, `lockOut`, `lockedPlayer`,
 `gkCleared` / `gkClearOut`, `lastTeam`, `kickNext`, `scoreB`, `scoreR`, `matchOver`,
 `running`, `deadTime`, `roleTimer`, `lastCarrier`, `drawAim`, `aimFrom` / `recv` (one-tap),
+`airMode` / `airBy` (aerial mode and who it is armed for),
 the match mode (`mode`, `matchLen`, `clock`, `sudden`) and the viewport values
 `cssW`/`cssH`/`scale`/`FIELD_H`. The guard counters `gapWarn` / `gapWarnLog` are **not**
 declared in `S` — `step()` creates them on the first warning, so they are absent until one
@@ -763,30 +961,43 @@ match is restarted from the menu, never by tapping the pitch.
 ### Simulation order inside `step(dt)`
 1. `updateClaim()` **first**, because the movement blocks below ask `lungeActive()` whether
    to stand aside and need a fresh answer.
-2. Controlled player: stick direction and magnitude → `bufferInput`. He is moved here only
-   if he is neither carrying nor in an active lunge; otherwise the stick is buffered and
-   `carryChase` / `lungeStep` move him. A release past the threshold arms `ball.pending`.
-3. Keepers, then the AI carrier (`driveCarrier` — plans and queues kicks; `moveTo` does not
+2. Aerial mode: clear it if the armed player no longer has the ball, then apply a pending
+   `touch.lift` (a release inside the ring) as a toggle.
+3. Controlled player: stick direction and magnitude → `bufferInput`, **except** while he
+   carries the ball with the thumb up, where last frame's buffered intent is kept instead. He
+   is moved here only if he is neither carrying nor in an active lunge; otherwise the stick is
+   buffered and `carryChase` / `lungeStep` move him. A release past the threshold arms
+   `ball.pending`, with `air` taken from the mode at that moment.
+4. Keepers, then the AI carrier (`driveCarrier` — plans and queues kicks; `moveTo` does not
    move a carrier), then `attack`/`defend` for both teams.
-4. `lungeStep(dt)` — the claimed player darts, if the lunge is active.
-5. `carryChase(dt)` — the carrier runs at the ball.
-6. Ball: linear friction, integrate, bounce off walls at 0.72 restitution, goal check inside
-   the mouth. Then the gap guard.
-7. Steal check — an opponent within `stealR` of the ball takes it, keeper protection aside.
-8. Loose-ball contact — the only place a loose ball stops.
-9. Contact for the owner — fire the queued pass, or kick, or hold.
-10. Control switch, then the aim line for drawing.
+5. `lungeStep(dt)` — the claimed player darts, if the lunge is active.
+6. `carryChase(dt)` — the carrier runs at the ball.
+7. Ball: on the ground `rollBall(dt, friction)`; in the air `airStep(dt)`, which brakes with
+   `airDrag`, applies gravity and resolves any landing at the exact instant it happens. Then
+   walls at 0.72 restitution and the goal check inside the mouth, both regardless of height.
+   Then the gap guard.
+8. Steal check — an opponent within `stealR` of the ball takes it, keeper protection aside.
+   An owned ball is never airborne, so this needs no aerial case.
+9. Loose-ball contact — the only place a loose ball stops. Airborne, only a keeper qualifies;
+   a collection at a landing keeps the ball's pace for the longer first touch.
+10. Contact for the owner — fire the queued pass, or take the dropping-ball first touch, or
+    kick, or hold.
+11. Control switch, then the aim line for drawing.
 
 ### Rendering
 Immediate mode, redrawn every frame, painter's order: pitch fill → stripes → boundary /
-halfway / centre circle → goals and boxes → for each player (pickup-radius ring, body square,
+halfway / centre circle → goals and boxes → **ball shadow** (at the ball's true ground
+position, always, under everything) → for each player (pickup-radius ring, body square,
 white outline if he owns the ball, **shirt number** — dark-stroked white digit filling the
 square, or a dark dot for a keeper — white ring at `PH*1.2` if he is the controlled player,
 facing tick, which starts at the body edge rather than the centre so it does not strike
-through the number) → anticipated-receiver ring (dashed, yellow while charging, green once armed) →
-armed-pass line (green, dotted, from `S.aimFrom`) → charge aim line (yellow, dashed, from
-`S.aimFrom`) → ball and its `tackleR` ring → joystick (inner ring, dashed threshold ring, knob
-clamped to the threshold radius).
+through the number) → **aerial-mode arch** above the armed carrier →
+anticipated-receiver ring (dashed, yellow while charging, green once armed) →
+armed-pass line (green, dotted or arced, from `S.aimFrom`) → charge aim line (yellow straight
+or orange arced, dashed, from `S.aimFrom`) → ball, drawn `z` above its position and scaled up
+with height, plus its `tackleR` ring **only while on the ground** → joystick (inner ring,
+dashed threshold ring — orange while aerial mode is armed, knob clamped to the threshold
+radius). The ball is therefore always above the players, and its shadow always below them.
 
 The controlled player's marker is a **stroked ring, not a filled disc**. It used to be a
 filled disc of radius `PH*1.9` = 28.5, which was wider than the ball's resting offset, so
@@ -850,7 +1061,13 @@ these values. They are hand-tuned by playing — do not change one without being
 | `touchPush` | 100 | 0–600 (10) | units/s | Extra speed given to the ball at contact, scaled by stick magnitude. Sets the whole dribble rhythm: peak gap `(touchPush*m)²/(2*friction)`, cycle `2*touchPush*m/friction`. The formula holds while `touchPush <= speedOf`. |
 | `chaseSteer` | 0 | 0–100 (5) | % | How much stick is blended into the carrier's automatic run at the ball. 0 = pure chase and full commitment between contacts, 100 = continuous steering. |
 | `lungeSpeed` | 50 | 10–500 (10) | % of normal | **Cap** on the reception lunge. The actual speed is what the interception requires; this only limits it. Note it is a percentage, so below 100 the lunge is slower than normal running. |
-| `friction` | 400 | 80–700 (10) | units/s² | Linear deceleration of the ball. Also halves the dribble cycle length if doubled. |
+| `friction` | 400 | 80–700 (10) | units/s² | Linear deceleration of the ball **on the ground**. Also halves the dribble cycle length if doubled. |
+| `gravity` | 1400 | 400–3000 (50) | units/s² | Pulls `vz` down while the ball is in the air. Sets flight time (`2·v·sin a / g`) and apex. |
+| `bounceKeep` | 45 | 0–80 (5) | % | Share of vertical speed kept on landing. 0 = the ball dies on the first bounce. |
+| `bounceDrag` | 80 | 40–100 (5) | % | Share of *horizontal* speed kept on landing. 100 = a bounce costs no pace. |
+| `airDrag` | 40 | 0–300 (10) | units/s² | Horizontal braking **while airborne**, in place of `friction`. Deliberately much weaker. |
+| `liftAngle` | 38 | 15–60 (1) | degrees | Launch angle of an aerial kick. Splits kick speed into `v·cos a` along the ground and `v·sin a` upward. Higher = shorter and higher. |
+| `airTouch` | 30 | 0–120 (5) | % of landing \|vz\| | How much extra pace a collected **dropping** ball keeps as a first touch. This is the "a dropping ball is harder to control" knob; 0 makes an aerial reception as clean as a ground one. |
 | `passSpeed` | 800 | 300–1100 (20) | units/s | **Maximum** pass speed, reached when the thumb is released `passRange` past the ring. |
 | `passRange` | 120 | 40–260 (5) | css px | How far past the threshold ring the thumb must travel for a full-power pass. |
 | `passMin` | 40 | 10–90 (5) | % of `passSpeed` | Weakest pass, played when the thumb is released right on the ring. |
@@ -907,6 +1124,7 @@ a new entry can go anywhere and nothing shifts.
 | `CONTACT` | `PH + BALL_R` = **25** units — the contact test, and where a held ball sits | `config.js` |
 | `GOAL_DEPTH` | 60 units — drawn goal area only, no effect on play | `config.js` |
 | `MATCH_TIMES` | `[60, 180, 300]` seconds — the timed-match durations offered by the menu. **Deliberately not a tunable**: it is edited in the file, not found with a slider, and the menu generates one button per entry | `config.js` |
+| `BOUNCE_STOP` | 60 units/s — below this vertical speed the ball stops bouncing and rolls. **Deliberately not a tunable**: it is the threshold below which a bounce is invisible (1.3 units high, 86 ms at default gravity), and it is also what guarantees at most one landing per frame, since the shortest post-bounce flight `2·60/3000` = 0.04 s exceeds the 0.033 s `dt` cap | `config.js` |
 | `STEAL_LOCK` | 0.5 s before the player who lost the ball can retake it | `config.js` |
 | `SETTLE` | 0.3 s before an AI that just gained the ball may kick it | `config.js` |
 | `LUNGE_TAKEOVER` | 0.15 — the lunge only drives the player above 15% of normal speed | `util.js` |
@@ -954,8 +1172,46 @@ Open questions (need a human answer):
   exceed half normal running speed, which is a strange ceiling for something described as a
   dart. It may want to live above 100, or the cap may want to be relative to the required
   speed instead.
+- **A crossbar.** The goal has no height, so a lofted shot between the posts scores whatever
+  `z` is — including one that in a 3D reading would have cleared the bar by metres. Nothing
+  in the code cares about `z` at the goal line. **Deliberately not added**, because it is a
+  tuning-and-design decision, not an implementation one: a `crossbar` tunable would need a
+  behaviour on hitting it (bounce down and back into play? out for a goal kick, which does
+  not exist here?). In practice it currently means the keeper — not a bar — is what a lob has
+  to beat, and he cannot be beaten by height either, since he catches an airborne ball at any
+  height inside his normal reach. Worth deciding whether that stays until the 3D work.
+- **Should the lift-holds-intent rule apply without the ball too?** Section 2 of the brief
+  says "lifting the thumb no longer stops the player" and then explains it in terms of the
+  carrier. It is implemented for the **carrier only** — off the ball a lift still stops him,
+  as before. The narrow reading was chosen because the stated reason (the aerial toggle takes
+  priority over the stop) only exists while carrying, and because holding intent off the ball
+  would send a defender running with no way to stop except re-touching and centring. Widening
+  it is a one-line change to the `mv` expression in `step()`.
+- **Should the AI ever play the ball aerially?** It does not, and this build does not need it
+  to. It would be cheap: `kickPlan` would take an `air` flag onto the plan, `driveCarrier`
+  would copy it onto `ball.pending`, and the speed for a wanted distance has a closed form
+  just like the ground one — inverting the range derivation gives `v = sqrt(R / k)` with
+  `k = sin 2a/g − 2·airDrag·sin²a/g²`. About four lines plus one helper. What is *not* cheap
+  is deciding when: on the measurements above, an aerial ball above minimum power is
+  collected by the kicker's team 26 % of the time against 37–59 % on the ground, so an AI
+  that lofts would simply give the ball away more often. A long clearance (where giving it
+  away is the point) is the one case that looks clearly positive.
 
 Known rough edges (behaviour, not necessarily bugs):
+
+- **Any release inside the threshold ring, while carrying, toggles aerial mode** — including
+  a release exactly *on* the ring, since a pass needs `d > threshold`. There is no other way
+  to toggle and no other consequence of such a release, but a returning player using the old
+  "lift to stop" habit will flip the mode: measured 27 toggles from 57 carrying releases in a
+  scripted session that used that habit every third cycle.
+- **The aerial aim arc bows sideways, and the ball does not.** The arc is a glyph (see "The
+  ball has height"); the ball in flight is drawn honestly. A pass aimed straight up the screen
+  therefore previews as a sideways bow and then flies dead straight with a growing shadow gap.
+- **A minimum-power aerial pass is a 69-unit chip.** Barely more than two contact radii, so at
+  the bottom of the power band the aerial and ground passes are nearly the same thing.
+- **An aerial pass cannot be intercepted in flight, only met on landing.** That is the design,
+  but it means a lofted ball over a crowded midfield always reaches the ground somewhere, and
+  whoever is nearest that spot gets it — often the opposition.
 
 - **A charge held without the ball still fires on release.** Being outside the ring is the
   only condition, so if you receive the ball while already outside and then lift, that
@@ -972,7 +1228,8 @@ Known rough edges (behaviour, not necessarily bugs):
   knowing because canvas silently ignores non-finite coordinates — there is no error, the
   players simply vanish.
 - **Contact stops the ball dead.** Taking possession zeroes the ball's velocity, so a
-  reception kills the pass rather than running on with it.
+  reception kills the pass rather than running on with it. The one exception is a ball
+  collected at a landing: that keeps pace as the longer first touch.
 - **A pass leaves from wherever the ball is**, not from the player, and it fires at the next
   contact rather than on release — so the origin and the moment both move around a little.
   The aim line is drawn from the player regardless, and is off by up to 11.5 css px.
