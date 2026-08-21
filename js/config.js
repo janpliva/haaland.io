@@ -91,7 +91,7 @@ export const TUNABLES = [
   // Při 0 je to přesně dosavadní pohled shora (z ze vzorce vypadne) — to je kontrola, proti
   // které se všechno ostatní měří. Výška hráče je čistě vykreslení, simulace ji nikde nečte;
   // při 0 jsou z hráčů zase ploché čtverce.
-  { key:'camTilt',       def:15,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
+  { key:'camTilt',       def:20,   min:0,   max:55,   step:1,   label:'Náklon kamery (°)',           group:'Kamera' },
   { key:'playerH',       def:65,   min:0,   max:120,  step:5,   label:'Výška hráče',                 group:'Kamera' },
   // Kamera se přibližuje a jede za míčem, ale JEN po délce hřiště — do stran se nepanuje nikdy.
   // camZoom 100 + camFollow 0 je přesně ten pevný pohled na celé hřiště, co tu byl dřív, a je
